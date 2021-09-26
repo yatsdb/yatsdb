@@ -3,8 +3,11 @@ module github.com/yatsdb/yatsdb
 go 1.16
 
 require (
+	github.com/go-kit/log v0.1.0
+	github.com/golang/snappy v0.0.4
 	github.com/prometheus/common v0.30.0
 	github.com/prometheus/prometheus v1.8.2-0.20210914090109-37468d88dce8
 	github.com/sirupsen/logrus v1.7.0
+	google.golang.org/protobuf v1.27.1
 
 )
