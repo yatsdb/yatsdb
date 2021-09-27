@@ -6,32 +6,12 @@ import (
 	"net/http"
 
 	"github.com/golang/snappy"
-	"github.com/prometheus/common/model"
 	"github.com/sirupsen/logrus"
 	"github.com/yatsdb/yatsdb"
 
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote"
 )
-
-func protoToSamples(req *prompb.WriteRequest) model.Samples {
-	var samples model.Samples
-	for _, ts := range req.Timeseries {
-		metric := make(model.Metric, len(ts.Labels))
-		for _, l := range ts.Labels {
-			metric[model.LabelName(l.Name)] = model.LabelValue(l.Value)
-		}
-
-		for _, s := range ts.Samples {
-			samples = append(samples, &model.Sample{
-				Metric:    metric,
-				Value:     model.SampleValue(s.Value),
-				Timestamp: model.Time(s.Timestamp),
-			})
-		}
-	}
-	return samples
-}
 
 func main() {
 
@@ -46,8 +26,7 @@ func main() {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		samples := protoToSamples(req)
-		if err := tsdb.WriteSamples(samples); err != nil {
+		if err := tsdb.WriteSamples(req); err != nil {
 			logrus.Errorf("tsdb write sample failed %+v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}

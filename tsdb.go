@@ -1,16 +1,18 @@
 package yatsdb
 
 import (
-	"encoding/binary"
 	"io"
+	"sort"
 	"sync"
 
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/sirupsen/logrus"
 )
 
 type TSDB interface {
-	WriteSamples(model.Samples) error
+	WriteSamples(*prompb.WriteRequest) error
 	ReadSimples(*prompb.ReadRequest) (*prompb.ReadResponse, error)
 }
 
@@ -18,8 +20,10 @@ func OpenTSDB() (TSDB, error) {
 	panic("not implemented") // TODO: Implement
 }
 
+type StreamID uint64
+
 type StreamBatchWriter interface {
-	Write(ID int64, data []byte) error
+	Write(ID StreamID, samples []prompb.Sample) error
 	Commit() error
 }
 
@@ -27,19 +31,9 @@ type StreamWriter interface {
 	Batch() StreamBatchWriter
 }
 
-type StreamReader interface {
-	io.Reader
-	io.Closer
-	io.Seeker
-}
-
-type StreamReaderCreator interface {
-	Create(streamID int64) StreamReader
-}
-
 //index updater
 type IndexBatchUpdater interface {
-	Set(labelSet model.LabelSet, streamID int64) error
+	Set(labels prompb.Labels, streamID StreamID) error
 	Commit() error
 }
 
@@ -49,58 +43,116 @@ type IndexUpdater interface {
 
 // index querier
 
-type Posting struct {
-	//Metric sample Metric
+type MetricsQuerier interface {
+	Query(matchers *[]prompb.LabelMatcher) (*[]model.Metric, error)
+}
+
+type StreamMetric struct {
 	Metric model.Metric
-	//streamID for reading data from stream
-	StreamID int64
-	//From offset to read
-	From int64
-	//To read to
-	To int64
+	//streamID  metric stream
+	StreamID StreamID
+	Offset   int64
+	Size     int64
+	//
+	StartTimestampMs int64
+	//
+	EndTimestampMs int64
 }
 
 type IndexQuerier interface {
-	Query(*prompb.Query) ([]Posting, error)
+	QueryStreamMetric(*prompb.Query) ([]*StreamMetric, error)
+}
+
+//stream reader
+
+type StreamReader interface {
+	io.Reader
+	io.Closer
+	io.Seeker
+}
+
+type MetricIterator interface {
+	//io.EOF end of stream
+	Next() (prompb.Sample, error)
+}
+
+type MetricStreamReader interface {
+	CreateStreamReader(StreamMetric *StreamMetric) (MetricIterator, error)
 }
 
 var _ TSDB = (*tsdb)(nil)
 
 type tsdb struct {
-	streamReaderCreator StreamReaderCreator
-	indexQuerier        IndexQuerier
-	streamWriter        StreamWriter
-	indexUpdater        IndexUpdater
+	metricStreamReader MetricStreamReader
+	indexQuerier       IndexQuerier
+	streamWriter       StreamWriter
+	indexUpdater       IndexUpdater
 }
 
 func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
+	var response prompb.ReadResponse
 	for _, query := range req.Queries {
-		postings, err := tsdb.indexQuerier.Query(query)
+		streamMetrics, err := tsdb.indexQuerier.QueryStreamMetric(query)
 		if err != nil {
 			return nil, err
 		}
+		var QueryResult prompb.QueryResult
+		for _, streamMetric := range streamMetrics {
+			iteractor, err := tsdb.metricStreamReader.CreateStreamReader(streamMetric)
+			if err != nil {
+				logrus.Errorf("createStreamReader failed %+v", err)
+				return nil, err
+			}
 
+			var timeSeries prompb.TimeSeries
+			for name, value := range streamMetric.Metric {
+				timeSeries.Labels = append(timeSeries.Labels, prompb.Label{
+					Name:  string(name),
+					Value: string(value),
+				})
+			}
+			for {
+				sample, err := iteractor.Next()
+				if err != nil {
+					if err != io.EOF {
+						logrus.Errorf("get sample error %+v", err)
+					}
+					break
+				}
+				timeSeries.Samples = append(timeSeries.Samples, sample)
+			}
+			QueryResult.Timeseries = append(QueryResult.Timeseries, &timeSeries)
+		}
+		response.Results = append(response.Results, &QueryResult)
 	}
 
 	return nil, nil
 }
 
-func (tsdb *tsdb) WriteSamples(samples model.Samples) error {
+func toLabels(pLabels []prompb.Label) labels.Labels {
+	var out = make(labels.Labels, 0, len(pLabels))
+	for _, label := range pLabels {
+		out = append(out, labels.Label{
+			Name:  label.Name,
+			Value: label.Value,
+		})
+	}
+	sort.Sort(out)
+	return out
+}
+
+func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 	streamBatchWriter := tsdb.streamWriter.Batch()
 	indexBatchUpdater := tsdb.indexUpdater.Batch()
-
-	for _, sample := range samples {
-		streamID := int64(sample.Metric.Fingerprint())
-		var buffer = make([]byte, 8)
-		binary.BigEndian.PutUint64(buffer, uint64(sample.Value))
-		if err := streamBatchWriter.Write(streamID, buffer); err != nil {
+	for _, timeseries := range request.Timeseries {
+		la := toLabels(timeseries.Labels)
+		streamID := StreamID(la.Hash())
+		if err := indexBatchUpdater.Set(prompb.Labels{Labels: timeseries.Labels}, streamID); err != nil {
 			return err
 		}
-
-		if err := indexBatchUpdater.Set(model.LabelSet(sample.Metric), streamID); err != nil {
+		if err := streamBatchWriter.Write(streamID, prompb.TimeSeries.Samples); err != nil {
 			return err
 		}
-
 	}
 	var sg sync.WaitGroup
 	var wErr error
