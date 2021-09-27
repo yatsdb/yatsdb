@@ -22,7 +22,7 @@ func OpenTSDB() (TSDB, error) {
 
 type StreamID uint64
 
-type AppendSampleCallback func(offset StreamTimestampOffset, err error)
+type AppendSampleCallback func(offset SeriesStreamOffset, err error)
 type SamplesWriter interface {
 	Append(ID StreamID, samples []prompb.Sample, fn AppendSampleCallback)
 }
@@ -33,8 +33,8 @@ type InvertedIndexUpdater interface {
 	Set(labels prompb.Labels, streamID StreamID) error
 }
 
-//StreamTimestampOffset
-type StreamTimestampOffset struct {
+//SeriesStreamOffset
+type SeriesStreamOffset struct {
 	//metrics stream ID
 	StreamID StreamID
 	//TimestampMS time series samples timestamp
@@ -44,7 +44,7 @@ type StreamTimestampOffset struct {
 }
 
 type OffsetIndexUpdater interface {
-	SetStreamTimestampOffset(streamTSOffset StreamTimestampOffset, callback func(err error))
+	SetStreamTimestampOffset(offset SeriesStreamOffset, callback func(err error))
 }
 
 // index querier
@@ -161,7 +161,7 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 		}
 		wg.Add(1)
 		tsdb.samplesWriter.Append(streamID, timeSeries.Samples,
-			func(offset StreamTimestampOffset, err error) {
+			func(offset SeriesStreamOffset, err error) {
 				if err != nil {
 					logrus.Errorf("write samples failed %+v", err)
 					select {
