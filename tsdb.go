@@ -22,23 +22,29 @@ func OpenTSDB() (TSDB, error) {
 
 type StreamID uint64
 
-type StreamBatchWriter interface {
-	Write(ID StreamID, samples []prompb.Sample) error
-	Commit() error
-}
-
-type StreamWriter interface {
-	Batch() StreamBatchWriter
+type AppendSampleCallback func(offset StreamTimestampOffset, err error)
+type SamplesWriter interface {
+	Append(ID StreamID, samples []prompb.Sample, fn AppendSampleCallback)
 }
 
 //index updater
-type IndexBatchUpdater interface {
+type InvertedIndexUpdater interface {
+	//set labels to streamID indexß
 	Set(labels prompb.Labels, streamID StreamID) error
-	Commit() error
 }
 
-type IndexUpdater interface {
-	Batch() IndexBatchUpdater
+//StreamTimestampOffset
+type StreamTimestampOffset struct {
+	//metrics stream ID
+	StreamID StreamID
+	//TimestampMS time series samples timestamp
+	TimestampMS int64
+	//Offset stream offset
+	Offset int64
+}
+
+type OffsetIndexUpdater interface {
+	SetStreamTimestampOffset(streamTSOffset StreamTimestampOffset, callback func(err error))
 }
 
 // index querier
@@ -51,8 +57,10 @@ type StreamMetric struct {
 	Metric model.Metric
 	//streamID  metric stream
 	StreamID StreamID
-	Offset   int64
-	Size     int64
+	//Offset to read
+	Offset int64
+	//size to read
+	Size int64
 	//
 	StartTimestampMs int64
 	//
@@ -83,10 +91,11 @@ type MetricStreamReader interface {
 var _ TSDB = (*tsdb)(nil)
 
 type tsdb struct {
-	metricStreamReader MetricStreamReader
-	indexQuerier       IndexQuerier
-	streamWriter       StreamWriter
-	indexUpdater       IndexUpdater
+	metricStreamReader   MetricStreamReader
+	indexQuerier         IndexQuerier
+	samplesWriter        SamplesWriter
+	invertedIndexUpdater InvertedIndexUpdater
+	offsetIndexUpdater   OffsetIndexUpdater
 }
 
 func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
@@ -142,32 +151,39 @@ func toLabels(pLabels []prompb.Label) labels.Labels {
 }
 
 func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
-	streamBatchWriter := tsdb.streamWriter.Batch()
-	indexBatchUpdater := tsdb.indexUpdater.Batch()
-	for _, timeseries := range request.Timeseries {
-		la := toLabels(timeseries.Labels)
+	var wg sync.WaitGroup
+	var errs = make(chan error, 1)
+	for _, timeSeries := range request.Timeseries {
+		la := toLabels(timeSeries.Labels)
 		streamID := StreamID(la.Hash())
-		if err := indexBatchUpdater.Set(prompb.Labels{Labels: timeseries.Labels}, streamID); err != nil {
+		if err := tsdb.invertedIndexUpdater.Set(prompb.Labels{Labels: timeSeries.Labels}, streamID); err != nil {
 			return err
 		}
-		if err := streamBatchWriter.Write(streamID, prompb.TimeSeries.Samples); err != nil {
-			return err
-		}
+		wg.Add(1)
+		tsdb.samplesWriter.Append(streamID, timeSeries.Samples,
+			func(offset StreamTimestampOffset, err error) {
+				if err != nil {
+					logrus.Errorf("write samples failed %+v", err)
+					select {
+					case errs <- err:
+					default:
+					}
+					wg.Done()
+				} else {
+					tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
+						defer wg.Done()
+						if err != nil {
+							logrus.Errorf("set timestamp stream offset failed %+v", err)
+						}
+					})
+				}
+			})
 	}
-	var sg sync.WaitGroup
-	var wErr error
-	go func() {
-		defer sg.Done()
-		//commit value to stream store
-		if err := streamBatchWriter.Commit(); err != nil {
-			wErr = err
-		}
-	}()
-
-	//update index
-	if err := indexBatchUpdater.Commit(); err != nil {
+	wg.Wait()
+	select {
+	case err := <-errs:
 		return err
+	default:
 	}
-	sg.Wait()
-	return wErr
+	return nil
 }
