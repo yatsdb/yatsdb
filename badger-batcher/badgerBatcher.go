@@ -1,6 +1,8 @@
-package yatsdb
+package badgerbatcher
 
 import (
+	"context"
+
 	"github.com/dgraph-io/badger/v3"
 	"github.com/sirupsen/logrus"
 )
@@ -12,7 +14,17 @@ type BadgerOP struct {
 type BadgerDBBatcher struct {
 	batchSize int
 	db        *badger.DB
+	ctx       context.Context
 	opCh      chan BadgerOP
+}
+
+func NewBadgerDBBatcher(ctx context.Context, maxBatchSize int, db *badger.DB) *BadgerDBBatcher {
+	return &BadgerDBBatcher{
+		batchSize: maxBatchSize,
+		db:        db,
+		ctx:       ctx,
+		opCh:      make(chan BadgerOP, maxBatchSize),
+	}
 }
 
 func (batcher *BadgerDBBatcher) Update(Op BadgerOP) {

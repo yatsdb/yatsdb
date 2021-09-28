@@ -22,15 +22,15 @@ func OpenTSDB() (TSDB, error) {
 
 type StreamID uint64
 
-type AppendSampleCallback func(offset SeriesStreamOffset, err error)
+type WriteSampleCallback func(offset SeriesStreamOffset, err error)
 type SamplesWriter interface {
-	Append(ID StreamID, samples []prompb.Sample, fn AppendSampleCallback)
+	Write(ID StreamID, samples []prompb.Sample, fn WriteSampleCallback)
 }
 
 //index updater
 type InvertedIndexUpdater interface {
 	//set labels to streamID indexß
-	Set(labels prompb.Labels, streamID StreamID) error
+	Insert(labels prompb.Labels, streamID StreamID) error
 }
 
 //SeriesStreamOffset
@@ -156,11 +156,12 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 	for _, timeSeries := range request.Timeseries {
 		la := toLabels(timeSeries.Labels)
 		streamID := StreamID(la.Hash())
-		if err := tsdb.invertedIndexUpdater.Set(prompb.Labels{Labels: timeSeries.Labels}, streamID); err != nil {
+		if err := tsdb.invertedIndexUpdater.Insert(
+			prompb.Labels{Labels: timeSeries.Labels}, streamID); err != nil {
 			return err
 		}
 		wg.Add(1)
-		tsdb.samplesWriter.Append(streamID, timeSeries.Samples,
+		tsdb.samplesWriter.Write(streamID, timeSeries.Samples,
 			func(offset SeriesStreamOffset, err error) {
 				if err != nil {
 					logrus.Errorf("write samples failed %+v", err)
@@ -169,14 +170,14 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 					default:
 					}
 					wg.Done()
-				} else {
-					tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
-						defer wg.Done()
-						if err != nil {
-							logrus.Errorf("set timestamp stream offset failed %+v", err)
-						}
-					})
+					return
 				}
+				tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
+					defer wg.Done()
+					if err != nil {
+						logrus.Errorf("set timestamp stream offset failed %+v", err)
+					}
+				})
 			})
 	}
 	wg.Wait()

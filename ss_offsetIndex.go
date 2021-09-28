@@ -1,17 +1,18 @@
 package yatsdb
 
 import (
+	"context"
 	"encoding/binary"
-	"fmt"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/pkg/errors"
+	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 )
 
 type SeriesStreamOffsetIndex struct {
-	OffsetIndexUpdater
 	db      *badger.DB
-	batcher *BadgerDBBatcher
+	batcher *badgerbatcher.BadgerDBBatcher
+	cancel  context.CancelFunc
 }
 
 const (
@@ -19,12 +20,26 @@ const (
 	STOffsetPrefixLen = len(STOffsetPrefix)
 )
 
-func OpenStreamTimestampOffsetIndex(storePath string) (*SeriesStreamOffsetIndex, error) {
-	return nil, fmt.Errorf("not implemented")
+func OpenStreamTimestampOffsetIndex(ctx context.Context, storePath string) (*SeriesStreamOffsetIndex, error) {
+	db, err := badger.Open(badger.DefaultOptions(storePath))
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 64, db)
+	batcher.Start()
+	return &SeriesStreamOffsetIndex{
+		db:      db,
+		batcher: batcher,
+		cancel:  cancel,
+	}, nil
 }
 
-func (index *SeriesStreamOffsetIndex) SetStreamTimestampOffset(offset SeriesStreamOffset, callback func(err error)) {
-	index.batcher.Update(BadgerOP{
+func (index *SeriesStreamOffsetIndex) Close() {
+	index.cancel()
+}
+func (index *SeriesStreamOffsetIndex) SetStreamTimestampOffset(offset SeriesStreamOffset, fn func(err error)) {
+	index.batcher.Update(badgerbatcher.BadgerOP{
 		Op: func(txn *badger.Txn) error {
 			key := make([]byte, 16+STOffsetPrefixLen)
 			value := make([]byte, 8)
@@ -42,6 +57,6 @@ func (index *SeriesStreamOffsetIndex) SetStreamTimestampOffset(offset SeriesStre
 			}
 			return nil
 		},
-		Commit: callback,
+		Commit: fn,
 	})
 }
