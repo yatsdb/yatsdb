@@ -26,5 +26,22 @@ type BadgerIndex struct {
 
 //support RBP filter  https://github.com/RoaringBitmap/gocroaring
 func (index *BadgerIndex) Insert(labels prompb.Labels, ID StreamID) error {
+	index.update(func(txn *badger.Txn) error {
+		var keys [][]byte
+		for _, label := range labels.Labels {
+
+		}
+	})
 	return nil
+}
+
+func (index *BadgerIndex) update(fn func(txn *badger.Txn) error) error {
+	var errs = make(chan error)
+	index.batcher.Update(badgerbatcher.BadgerOP{
+		Op: fn,
+		Commit: func(err error) {
+			errs <- err
+		},
+	})
+	return <-errs
 }
