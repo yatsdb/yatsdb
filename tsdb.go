@@ -67,7 +67,7 @@ type StreamMetric struct {
 	EndTimestampMs int64
 }
 
-type IndexQuerier interface {
+type StreamMetricQuerier interface {
 	QueryStreamMetric(*prompb.Query) ([]*StreamMetric, error)
 }
 
@@ -92,7 +92,7 @@ var _ TSDB = (*tsdb)(nil)
 
 type tsdb struct {
 	metricStreamReader   MetricStreamReader
-	indexQuerier         IndexQuerier
+	streamMetricQuerier  StreamMetricQuerier
 	samplesWriter        SamplesWriter
 	invertedIndexUpdater InvertedIndexUpdater
 	offsetIndexUpdater   OffsetIndexUpdater
@@ -101,7 +101,7 @@ type tsdb struct {
 func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
 	var response prompb.ReadResponse
 	for _, query := range req.Queries {
-		streamMetrics, err := tsdb.indexQuerier.QueryStreamMetric(query)
+		streamMetrics, err := tsdb.streamMetricQuerier.QueryStreamMetric(query)
 		if err != nil {
 			return nil, err
 		}
