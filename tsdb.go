@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
+	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 )
 
 type TSDB interface {
@@ -20,7 +21,7 @@ func OpenTSDB() (TSDB, error) {
 	panic("not implemented") // TODO: Implement
 }
 
-type StreamID uint64
+type StreamID = invertedindex.StreamID
 
 type WriteSampleCallback func(offset SeriesStreamOffset, err error)
 type SamplesWriter interface {
@@ -30,7 +31,7 @@ type SamplesWriter interface {
 //index updater
 type InvertedIndexUpdater interface {
 	//set labels to streamID indexß
-	Insert(labels prompb.Labels, streamID StreamID) error
+	Insert(streamMetric invertedindex.StreamMetric) error
 }
 
 //SeriesStreamOffset
@@ -53,11 +54,9 @@ type MetricsQuerier interface {
 	Query(matchers *[]prompb.LabelMatcher) (*[]model.Metric, error)
 }
 
-type StreamMetric struct {
-	Metric model.Metric
-	//streamID  metric stream
-	StreamID StreamID
-	//Offset to read
+type StreamMetricOffset struct {
+	invertedindex.StreamMetric
+
 	Offset int64
 	//size to read
 	Size int64
@@ -68,7 +67,7 @@ type StreamMetric struct {
 }
 
 type StreamMetricQuerier interface {
-	QueryStreamMetric(*prompb.Query) ([]*StreamMetric, error)
+	QueryStreamMetric(*prompb.Query) ([]*StreamMetricOffset, error)
 }
 
 //stream reader
@@ -85,7 +84,7 @@ type MetricIterator interface {
 }
 
 type MetricStreamReader interface {
-	CreateStreamReader(StreamMetric *StreamMetric) (MetricIterator, error)
+	CreateStreamReader(StreamMetric *StreamMetricOffset) (MetricIterator, error)
 }
 
 var _ TSDB = (*tsdb)(nil)
@@ -114,10 +113,10 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 			}
 
 			var timeSeries prompb.TimeSeries
-			for name, value := range streamMetric.Metric {
+			for _, label := range streamMetric.Labels {
 				timeSeries.Labels = append(timeSeries.Labels, prompb.Label{
-					Name:  string(name),
-					Value: string(value),
+					Name:  string(label.Name),
+					Value: string(label.Value),
 				})
 			}
 			for {
@@ -156,8 +155,10 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 	for _, timeSeries := range request.Timeseries {
 		la := toLabels(timeSeries.Labels)
 		streamID := StreamID(la.Hash())
-		if err := tsdb.invertedIndexUpdater.Insert(
-			prompb.Labels{Labels: timeSeries.Labels}, streamID); err != nil {
+		if err := tsdb.invertedIndexUpdater.Insert(invertedindex.StreamMetric{
+			Labels:   timeSeries.Labels,
+			StreamID: streamID,
+		}); err != nil {
 			return err
 		}
 		wg.Add(1)

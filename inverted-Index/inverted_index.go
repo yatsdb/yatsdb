@@ -11,12 +11,20 @@ import (
 )
 
 type StreamID uint64
+
+type StreamMetric struct {
+	Labels []prompb.Label
+	//streamID  metric stream
+	StreamID StreamID
+	//Offset to read
+}
+
 type IndexInserter interface {
-	Insert(labels prompb.Labels, ID StreamID) error
+	Insert(streamMetric StreamMetric) error
 }
 
 type IndexMatcher interface {
-	Matcher(matcher ...*prompb.LabelMatcher) ([]StreamID, error)
+	Matcher(matcher ...*prompb.LabelMatcher) ([]StreamMetric, error)
 }
 
 type Index struct {
@@ -33,12 +41,15 @@ var (
 	sep = []byte(`\xff`)
 )
 
-//support RBP filter  https://github.com/RoaringBitmap/gocroaring
-func (index *BadgerIndex) Insert(labels prompb.Labels, ID StreamID) error {
+/*
+key format:
+name sep value sep streamIO
+*/
+func (index *BadgerIndex) Insert(streamMetric StreamMetric) error {
 	if err := index.update(func(txn *badger.Txn) error {
 		var IDBuf = make([]byte, 8)
-		binary.BigEndian.PutUint64(IDBuf, uint64(ID))
-		for _, label := range labels.Labels {
+		binary.BigEndian.PutUint64(IDBuf, uint64(streamMetric.StreamID))
+		for _, label := range streamMetric.Labels {
 			buf := make([]byte, len(label.Name)+len(label.Value)+len(sep)+8)
 			key := buf
 			//copy name
@@ -68,7 +79,7 @@ func (index *BadgerIndex) Insert(labels prompb.Labels, ID StreamID) error {
 	return nil
 }
 
-func (index *BadgerIndex) Matcher(matcher ...*prompb.LabelMatcher) ([]StreamID, error) {
+func (index *BadgerIndex) Matcher(matcher ...*prompb.LabelMatcher) ([]StreamMetric, error) {
 	return nil, fmt.Errorf("not implemented")
 }
 

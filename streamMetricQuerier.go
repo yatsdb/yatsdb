@@ -12,6 +12,6 @@ type streamMetricQuerier struct {
 
 var _ StreamMetricQuerier = (*streamMetricQuerier)(nil)
 
-func (querier *streamMetricQuerier) QueryStreamMetric(query *prompb.Query) ([]*StreamMetric, error) {
+func (querier *streamMetricQuerier) QueryStreamMetric(query *prompb.Query) ([]*StreamMetricOffset, error) {
 	return nil, fmt.Errorf("not implemented")
 }
