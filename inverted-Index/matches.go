@@ -25,20 +25,22 @@ func metricMatches(metric StreamMetric, matchers ...*Matcher) bool {
 }
 
 type Matcher struct {
+	matchEmpty    bool
 	labelsMatcher *labels.Matcher
 }
 
 func NewMatcher(labelMatcher prompb.LabelMatcher) *Matcher {
-	return &Matcher{
+	matcher := &Matcher{
 		labelsMatcher: labels.MustNewMatcher(labels.MatchType(labelMatcher.Type),
 			labelMatcher.Name, labelMatcher.Value),
 	}
+	matcher.matchEmpty = matcher.labelsMatcher.Matches("")
+	return matcher
 }
 
 func (matcher *Matcher) Matches(metric StreamMetric) bool {
 	switch matcher.labelsMatcher.Type {
 	case labels.MatchEqual:
-		var empty = matcher.labelsMatcher.Value == ""
 		var findLabel = false
 		for _, label := range metric.Labels {
 			if matcher.labelsMatcher.Name == label.Name {
@@ -53,12 +55,9 @@ func (matcher *Matcher) Matches(metric StreamMetric) bool {
 		// the series which don't have the label name set too. See:
 		// https://github.com/prometheus/prometheus/issues/3575 and
 		// https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
-		if empty && !findLabel {
-			return true
-		}
+		return matcher.matchEmpty && !findLabel
 	case labels.MatchNotEqual, labels.MatchNotRegexp:
 		var findLabel = false
-		var empty = matcher.labelsMatcher.Value == ""
 		for _, label := range metric.Labels {
 			if matcher.labelsMatcher.Name == label.Name {
 				findLabel = true
@@ -68,19 +67,18 @@ func (matcher *Matcher) Matches(metric StreamMetric) bool {
 				return false
 			}
 		}
-		if empty {
-			return findLabel
-		}
-		return true
+		return findLabel || matcher.matchEmpty
 	case labels.MatchRegexp:
+		var findLabel = false
 		for _, label := range metric.Labels {
 			if matcher.labelsMatcher.Name == label.Name {
+				findLabel = true
 				if matcher.labelsMatcher.Matches(label.Value) {
 					return true
 				}
 			}
 		}
-		return true
+		return !findLabel && matcher.matchEmpty
 	}
 	return false
 }
