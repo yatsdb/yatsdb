@@ -8,14 +8,14 @@ import (
 func MetricsMatches(metrics []StreamMetric, matchers ...*Matcher) []StreamMetric {
 	var result = make([]StreamMetric, 0, len(metrics)/2)
 	for _, metric := range metrics {
-		if metricMatches(metric, matchers...) {
+		if MetricMatches(metric, matchers...) {
 			result = append(result, metric)
 		}
 	}
 	return result
 }
 
-func metricMatches(metric StreamMetric, matchers ...*Matcher) bool {
+func MetricMatches(metric StreamMetric, matchers ...*Matcher) bool {
 	for _, matcher := range matchers {
 		if !matcher.Matches(metric) {
 			return false
@@ -29,7 +29,15 @@ type Matcher struct {
 	labelsMatcher *labels.Matcher
 }
 
-func NewMatcher(labelMatcher prompb.LabelMatcher) *Matcher {
+func NewMatchers(labelMatchers ...*prompb.LabelMatcher) []*Matcher {
+	var matchers []*Matcher
+	for _, labelMatcher := range labelMatchers {
+		matchers = append(matchers, NewMatcher(labelMatcher))
+	}
+	return matchers
+}
+
+func NewMatcher(labelMatcher *prompb.LabelMatcher) *Matcher {
 	matcher := &Matcher{
 		labelsMatcher: labels.MustNewMatcher(labels.MatchType(labelMatcher.Type),
 			labelMatcher.Name, labelMatcher.Value),

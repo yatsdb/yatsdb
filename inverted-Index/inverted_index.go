@@ -83,20 +83,60 @@ func (index *BadgerIndex) Insert(streamMetric StreamMetric) error {
 	return nil
 }
 
-func (index *BadgerIndex) Matcher(matchers ...*prompb.LabelMatcher) ([]StreamMetric, error) {
-	LabelMatchersSort(matchers)
-	firstMatcher := matchers[0]
+func (index *BadgerIndex) Matcher(labelMatchers ...*prompb.LabelMatcher) ([]StreamMetric, error) {
+	var result []StreamMetric
+	LabelMatchersSort(labelMatchers)
 	index.db.View(func(txn *badger.Txn) error {
-		matcher := NewMatcher(*firstMatcher)
-		if matcher.matchEmpty &&
-			(matcher.labelsMatcher.Type == labels.MatchEqual || matcher.labelsMatcher.Type == labels.MatchRegexp) {
+		matchers := NewMatchers(labelMatchers...)
+		firstMatcher := matchers[0]
+		if firstMatcher.matchEmpty &&
+			(firstMatcher.labelsMatcher.Type == labels.MatchEqual || firstMatcher.labelsMatcher.Type == labels.MatchRegexp) {
 			// l=""
 			// If the matchers for a labelname selects an empty value, it selects all
 			// the series which don't have the label name set too. See:
 			// https://github.com/prometheus/prometheus/issues/3575 and
 			// https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
 
+			opts := badger.DefaultIteratorOptions
+			opts.Prefix = []byte(metricKeyPrefix)
+			iter := txn.NewIterator(opts)
+			defer iter.Close()
+			for iter.Rewind(); iter.Valid(); iter.Next() {
+				var metric StreamMetric
+				if err := iter.Item().Value(func(val []byte) error {
+					return nil
+				}); err != nil {
+					return err
+				}
+				if MetricMatches(metric, matchers...) {
+					result = append(result, metric)
+				}
+			}
+			return nil
 		} else {
+			opts := badger.DefaultIteratorOptions
+			opts.Prefix = []byte(invertedKeyPrefix + string(sep) + firstMatcher.labelsMatcher.Name)
+
+			if firstMatcher.labelsMatcher.Type == labels.MatchEqual {
+				opts.Prefix = []byte(invertedKeyPrefix + string(sep) +
+					firstMatcher.labelsMatcher.Name + string(sep) +
+					firstMatcher.labelsMatcher.Value + string(sep))
+			}
+
+			iter := txn.NewIterator(opts)
+			defer iter.Close()
+			for iter.Rewind(); iter.Valid(); iter.Next() {
+				var metric StreamMetric
+				if err := iter.Item().Value(func(val []byte) error {
+					return nil
+				}); err != nil {
+					return err
+				}
+				if MetricMatches(metric, matchers...) {
+					result = append(result, metric)
+				}
+			}
+			return nil
 		}
 		return nil
 	})
