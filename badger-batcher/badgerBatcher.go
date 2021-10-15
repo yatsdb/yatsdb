@@ -28,9 +28,13 @@ func NewBadgerDBBatcher(ctx context.Context, maxBatchSize int, db *badger.DB) *B
 }
 
 func (batcher *BadgerDBBatcher) Update(Op BadgerOP) {
-	batcher.opCh <- Op
+	select {
+	case batcher.opCh <- Op:
+	case <-batcher.ctx.Done():
+		Op.Commit(batcher.ctx.Err())
+	}
 }
-func (batcher *BadgerDBBatcher) Start() {
+func (batcher *BadgerDBBatcher) Start() *BadgerDBBatcher {
 	go func() {
 		for {
 			ops := append([]BadgerOP{}, <-batcher.opCh)
@@ -67,4 +71,5 @@ func (batcher *BadgerDBBatcher) Start() {
 			}
 		}
 	}()
+	return batcher
 }

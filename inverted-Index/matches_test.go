@@ -31,7 +31,7 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Simple equals.",
 			args: args{
 				metrics:  streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "1"}}},
@@ -44,8 +44,8 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Simple equals.",
 			args: args{
 				metrics: streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "a"})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "a"})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}}},
@@ -55,8 +55,8 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Simple equals.",
 			args: args{
 				metrics: streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "missing"})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "missing"})},
 			},
 			want: []StreamMetric{},
 		},
@@ -65,7 +65,7 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Simple equals.",
 			args: args{
 				metrics:  streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "missing", Value: ""})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "missing", Value: ""})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "1"}}},
@@ -79,7 +79,7 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Not equals.",
 			args: args{
 				metrics:  streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "n", Value: "1"})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "n", Value: "1"})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "2"}}},
@@ -90,7 +90,7 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Not equals.",
 			args: args{
 				metrics:  streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}}},
@@ -101,7 +101,7 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Not equals.",
 			args: args{
 				metrics:  streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "missing", Value: ""})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "missing", Value: ""})},
 			},
 			want: []StreamMetric{},
 		},
@@ -109,8 +109,8 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Not equals.",
 			args: args{
 				metrics: streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: "a"})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: "a"})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "1"}}},
@@ -121,8 +121,8 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Not equals.",
 			args: args{
 				metrics: streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}}},
@@ -133,7 +133,7 @@ func TestMetricsMatches(t *testing.T) {
 			name: "Regex",
 			args: args{
 				metrics:  streamMetrics,
-				matchers: []*Matcher{NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "^1$"})},
+				matchers: []*Matcher{NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "^1$"})},
 			},
 			want: []StreamMetric{
 				{Labels: []prompb.Label{{Name: "n", Value: "1"}}},
@@ -146,8 +146,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -159,8 +159,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a?$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a?$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -173,7 +173,7 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -187,8 +187,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -200,8 +200,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.*$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.*$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -215,8 +215,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.+$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.+$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -230,7 +230,7 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "n", Value: "^1$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "n", Value: "^1$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -243,8 +243,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^a?"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^a?"}),
 				},
 			},
 			want: []StreamMetric{
@@ -256,8 +256,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -270,8 +270,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.*$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.*$"}),
 				},
 			},
 			want: []StreamMetric{},
@@ -281,8 +281,8 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.+$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.+$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -294,9 +294,9 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "b"}),
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^(b|a).*$"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "b"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^(b|a).*$"}),
 				},
 			},
 			want: []StreamMetric{
@@ -308,7 +308,7 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "1|2"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "1|2"}),
 				},
 			},
 			want: []StreamMetric{
@@ -323,7 +323,7 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "a|b"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "a|b"}),
 				},
 			},
 			want: []StreamMetric{
@@ -336,7 +336,7 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "x2|2"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "x2|2"}),
 				},
 			},
 			want: []StreamMetric{
@@ -348,7 +348,7 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "2|2\\.5"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "n", Value: "2|2\\.5"}),
 				},
 			},
 			want: []StreamMetric{
@@ -361,7 +361,7 @@ func TestMetricsMatches(t *testing.T) {
 			args: args{
 				metrics: streamMetrics,
 				matchers: []*Matcher{
-					NewMatcher(prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "c||d"}),
+					NewMatcher(&prompb.LabelMatcher{Type: prompb.LabelMatcher_RE, Name: "i", Value: "c||d"}),
 				},
 			},
 			want: []StreamMetric{
