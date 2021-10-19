@@ -28,7 +28,7 @@ type IndexMatcher interface {
 	Matches(matcher ...*prompb.LabelMatcher) ([]StreamMetric, error)
 }
 
-type Index struct {
+type DB interface {
 	IndexInserter
 	IndexMatcher
 }
