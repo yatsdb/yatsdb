@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
+	"github.com/yatsdb/yatsdb/aoss"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
@@ -26,6 +27,7 @@ type StreamID = invertedindex.StreamID
 type SeriesStreamOffset = ssoffsetindex.SeriesStreamOffset
 
 type WriteSampleCallback func(offset SeriesStreamOffset, err error)
+
 type SamplesWriter interface {
 	Write(ID StreamID, samples []prompb.Sample, fn WriteSampleCallback)
 }
@@ -61,20 +63,14 @@ type StreamMetricQuerier interface {
 }
 
 //stream reader
-
-type StreamReader interface {
-	io.Reader
-	io.Closer
-	io.Seeker
-}
-
-type MetricIterator interface {
+type SampleIterator interface {
 	//io.EOF end of stream
 	Next() (prompb.Sample, error)
+	Close() error
 }
 
-type MetricStreamReader interface {
-	CreateStreamReader(StreamMetric *StreamMetricOffset) (MetricIterator, error)
+type MetricSampleIteratorCreater interface {
+	CreateSampleSampleIterator(StreamMetric *StreamMetricOffset) (SampleIterator, error)
 }
 
 var _ TSDB = (*tsdb)(nil)
@@ -85,8 +81,9 @@ type tsdb struct {
 
 	metricIndexDB invertedindex.DB
 	offsetDB      ssoffsetindex.OffsetDB
+	streanStore   aoss.StreamStore
 
-	metricStreamReader   MetricStreamReader
+	metricStreamReader   MetricSampleIteratorCreater
 	streamMetricQuerier  StreamMetricQuerier
 	samplesWriter        SamplesWriter
 	invertedIndexUpdater InvertedIndexUpdater
@@ -94,17 +91,34 @@ type tsdb struct {
 }
 
 func OpenTSDB(options Options) (TSDB, error) {
-	db, err := badger.Open(badger.DefaultOptions(options.BadgerDBStorePath))
+	db, err := badger.Open(badger.DefaultOptions(options.BadgerDBStoreDir))
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	streamStore, err := aoss.OpenFileStreamStore(options.FileStreamStoreDir)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 1024, db).Start()
+	offsetDB := ssoffsetindex.NewSeriesStreamOffsetIndex(db, batcher)
+	metricIndexDB := invertedindex.NewBadgerIndex(db, batcher)
 	tsdb := &tsdb{
 		ctx:           ctx,
 		cancel:        cancel,
-		metricIndexDB: invertedindex.NewBadgerIndex(db, batcher),
-		offsetDB:      ssoffsetindex.NewSeriesStreamOffsetIndex(db, batcher),
+		metricIndexDB: metricIndexDB,
+		offsetDB:      offsetDB,
+		streanStore:   streamStore,
+		samplesWriter: &samplesWriter{streamAppender: streamStore},
+		metricStreamReader: &metricSampleIteratorCreater{
+			streamReader: streamStore,
+		},
+		streamMetricQuerier: &streamMetricQuerier{
+			streamTimestampOffsetGetter: offsetDB,
+			metricMatcher:               metricIndexDB,
+		},
+		invertedIndexUpdater: metricIndexDB,
+		offsetIndexUpdater:   offsetDB,
 	}
 
 	return tsdb, nil
@@ -112,6 +126,12 @@ func OpenTSDB(options Options) (TSDB, error) {
 
 func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
 	var response prompb.ReadResponse
+	var closers []io.Closer
+	defer func() {
+		for _, closer := range closers {
+			_ = closer.Close()
+		}
+	}()
 	for _, query := range req.Queries {
 		streamMetrics, err := tsdb.streamMetricQuerier.QueryStreamMetric(query)
 		if err != nil {
@@ -119,12 +139,12 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 		}
 		var QueryResult prompb.QueryResult
 		for _, streamMetric := range streamMetrics {
-			iteractor, err := tsdb.metricStreamReader.CreateStreamReader(streamMetric)
+			it, err := tsdb.metricStreamReader.CreateSampleSampleIterator(streamMetric)
 			if err != nil {
 				logrus.Errorf("createStreamReader failed %+v", err)
 				return nil, err
 			}
-
+			closers = append(closers, it)
 			var timeSeries prompb.TimeSeries
 			for _, label := range streamMetric.Labels {
 				timeSeries.Labels = append(timeSeries.Labels, prompb.Label{
@@ -133,7 +153,7 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 				})
 			}
 			for {
-				sample, err := iteractor.Next()
+				sample, err := it.Next()
 				if err != nil {
 					if err != io.EOF {
 						logrus.Errorf("get sample error %+v", err)
@@ -175,23 +195,25 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 			return err
 		}
 		wg.Add(1)
-		tsdb.samplesWriter.Write(streamID, timeSeries.Samples, func(offset SeriesStreamOffset, err error) {
-			if err != nil {
-				logrus.Errorf("write samples failed %+v", err)
-				select {
-				case errs <- err:
-				default:
-				}
-				wg.Done()
-				return
-			}
-			tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
-				defer wg.Done()
+		tsdb.samplesWriter.Write(streamID,
+			timeSeries.Samples,
+			func(offset SeriesStreamOffset, err error) {
 				if err != nil {
-					logrus.Errorf("set timestamp stream offset failed %+v", err)
+					wg.Done()
+					logrus.Errorf("write samples failed %+v", err)
+					select {
+					case errs <- err:
+					default:
+					}
+					return
 				}
+				tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
+					wg.Done()
+					if err != nil {
+						logrus.Errorf("set timestamp stream offset failed %+v", err)
+					}
+				})
 			})
-		})
 	}
 	wg.Wait()
 	select {

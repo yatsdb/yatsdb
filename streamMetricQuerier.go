@@ -8,7 +8,6 @@ import (
 )
 
 type streamMetricQuerier struct {
-	StreamMetricQuerier
 	streamTimestampOffsetGetter ssoffsetindex.StreamTimestampOffsetGetter
 	metricMatcher               invertedindex.IndexMatcher
 }

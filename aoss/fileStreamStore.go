@@ -137,3 +137,15 @@ func (fsStore *FileStreamStore) Append(streamID StreamID, data []byte, fn func(o
 		}
 	}()
 }
+
+func (fsStore *FileStreamStore) Close() error {
+	fsStore.mtx.Lock()
+	for _, fs := range fsStore.fileStreams {
+		fs.Mutex.Lock()
+		_ = fs.f.Close()
+		fs.Mutex.Unlock()
+	}
+	fsStore.fileStreams = make(map[invertedindex.StreamID]*fileStream)
+	fsStore.mtx.Unlock()
+	return nil
+}
