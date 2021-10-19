@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	invertedKeyPrefix = "$0"
-	metricKeyPrefix   = "$1"
+	invertedKeyPrefix = "1$"
+	metricKeyPrefix   = "2$"
 	sep               = []byte(`\xff`)
 )
 
@@ -38,6 +38,15 @@ type BadgerIndex struct {
 	batcher         *badgerbatcher.BadgerDBBatcher
 	streamIDsLocker *sync.Mutex
 	streamIDs       map[StreamID]bool
+}
+
+func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) *BadgerIndex {
+	return &BadgerIndex{
+		db:              db,
+		batcher:         batcher,
+		streamIDsLocker: &sync.Mutex{},
+		streamIDs:       make(map[StreamID]bool, 1024),
+	}
 }
 
 func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {

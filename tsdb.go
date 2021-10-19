@@ -10,6 +10,7 @@ import (
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
+	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
 )
 
 type TSDB interface {
@@ -22,6 +23,7 @@ func OpenTSDB() (TSDB, error) {
 }
 
 type StreamID = invertedindex.StreamID
+type SeriesStreamOffset = ssoffsetindex.SeriesStreamOffset
 
 type WriteSampleCallback func(offset SeriesStreamOffset, err error)
 type SamplesWriter interface {
@@ -32,16 +34,6 @@ type SamplesWriter interface {
 type InvertedIndexUpdater interface {
 	//set labels to streamID indexß
 	Insert(streamMetric invertedindex.StreamMetric) error
-}
-
-//SeriesStreamOffset
-type SeriesStreamOffset struct {
-	//metrics stream ID
-	StreamID StreamID
-	//TimestampMS time series samples timestamp
-	TimestampMS int64
-	//Offset stream offset
-	Offset int64
 }
 
 type OffsetIndexUpdater interface {
@@ -162,24 +154,23 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 			return err
 		}
 		wg.Add(1)
-		tsdb.samplesWriter.Write(streamID, timeSeries.Samples,
-			func(offset SeriesStreamOffset, err error) {
-				if err != nil {
-					logrus.Errorf("write samples failed %+v", err)
-					select {
-					case errs <- err:
-					default:
-					}
-					wg.Done()
-					return
+		tsdb.samplesWriter.Write(streamID, timeSeries.Samples, func(offset SeriesStreamOffset, err error) {
+			if err != nil {
+				logrus.Errorf("write samples failed %+v", err)
+				select {
+				case errs <- err:
+				default:
 				}
-				tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
-					defer wg.Done()
-					if err != nil {
-						logrus.Errorf("set timestamp stream offset failed %+v", err)
-					}
-				})
+				wg.Done()
+				return
+			}
+			tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
+				defer wg.Done()
+				if err != nil {
+					logrus.Errorf("set timestamp stream offset failed %+v", err)
+				}
 			})
+		})
 	}
 	wg.Wait()
 	select {
