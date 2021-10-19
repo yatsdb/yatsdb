@@ -21,8 +21,8 @@ type fileStream struct {
 }
 
 type FileStreamStore struct {
-	mtx         sync.Mutex
 	fileStreams map[StreamID]*fileStream
+	mtx         *sync.Mutex
 	baseDir     string
 
 	pipelines chan interface{}
@@ -31,7 +31,7 @@ type FileStreamStore struct {
 var fileStreamExt = ".stream"
 
 func OpenFileStreamStore(dir string) (*FileStreamStore, error) {
-	err := os.MkdirAll(dir, 0666)
+	err := os.MkdirAll(dir, 0777)
 	if err != nil {
 		if err != os.ErrExist {
 			return nil, errors.WithStack(err)
@@ -63,7 +63,7 @@ func OpenFileStreamStore(dir string) (*FileStreamStore, error) {
 	})
 
 	return &FileStreamStore{
-		mtx:         sync.Mutex{},
+		mtx:         &sync.Mutex{},
 		fileStreams: fileStreams,
 		baseDir:     dir,
 		pipelines:   make(chan interface{}, 128),
