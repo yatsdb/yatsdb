@@ -2,17 +2,22 @@ package aoss
 
 import (
 	"io"
+
+	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 )
 
+type StreamID = invertedindex.StreamID
+
 type StreamAppender interface {
-	Append(streamID uint64, data []byte, fn func(offset int64, err error))
+	Append(streamID StreamID, data []byte, fn func(offset int64, err error))
 }
 
 type StreamReader interface {
-	NewReader(streamID uint64) io.ReadSeekCloser
+	NewReader(streamID StreamID) (io.ReadSeekCloser, error)
 }
 
-type InvertedIndex interface {
+type StreamStore interface {
+	io.Closer
 	StreamAppender
 	StreamReader
 }
