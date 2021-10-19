@@ -1,14 +1,18 @@
 package yatsdb
 
 import (
+	"context"
 	"io"
 	"sort"
 	"sync"
 
+	"github.com/dgraph-io/badger/v3"
+	"github.com/pkg/errors"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
+	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
 )
@@ -16,10 +20,6 @@ import (
 type TSDB interface {
 	WriteSamples(*prompb.WriteRequest) error
 	ReadSimples(*prompb.ReadRequest) (*prompb.ReadResponse, error)
-}
-
-func OpenTSDB() (TSDB, error) {
-	panic("not implemented") // TODO: Implement
 }
 
 type StreamID = invertedindex.StreamID
@@ -31,13 +31,11 @@ type SamplesWriter interface {
 }
 
 //index updater
+
+type OffsetIndexUpdater = ssoffsetindex.OffsetIndexUpdater
 type InvertedIndexUpdater interface {
 	//set labels to streamID indexß
 	Insert(streamMetric invertedindex.StreamMetric) error
-}
-
-type OffsetIndexUpdater interface {
-	SetStreamTimestampOffset(offset SeriesStreamOffset, callback func(err error))
 }
 
 // index querier
@@ -82,11 +80,34 @@ type MetricStreamReader interface {
 var _ TSDB = (*tsdb)(nil)
 
 type tsdb struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	metricIndexDB invertedindex.DB
+	offsetDB      ssoffsetindex.OffsetDB
+
 	metricStreamReader   MetricStreamReader
 	streamMetricQuerier  StreamMetricQuerier
 	samplesWriter        SamplesWriter
 	invertedIndexUpdater InvertedIndexUpdater
 	offsetIndexUpdater   OffsetIndexUpdater
+}
+
+func OpenTSDB(options Options) (TSDB, error) {
+	db, err := badger.Open(badger.DefaultOptions(options.BadgerDBStorePath))
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 1024, db).Start()
+	tsdb := &tsdb{
+		ctx:           ctx,
+		cancel:        cancel,
+		metricIndexDB: invertedindex.NewBadgerIndex(db, batcher),
+		offsetDB:      ssoffsetindex.NewSeriesStreamOffsetIndex(db, batcher),
+	}
+
+	return tsdb, nil
 }
 
 func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {

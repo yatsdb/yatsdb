@@ -69,7 +69,6 @@ func TestSeriesStreamOffsetIndex_SetStreamTimestampOffset(t *testing.T) {
 	f := fields{
 		db:      indexDB.db,
 		batcher: indexDB.batcher,
-		cancel:  indexDB.cancel,
 	}
 
 	tests := []struct {
@@ -129,7 +128,6 @@ func TestSeriesStreamOffsetIndex_SetStreamTimestampOffset(t *testing.T) {
 			index := &SeriesStreamOffsetIndex{
 				db:      tt.fields.db,
 				batcher: tt.fields.batcher,
-				cancel:  tt.fields.cancel,
 			}
 			index.SetStreamTimestampOffset(tt.args.offset, func(err error) {
 				wg.Done()
@@ -182,7 +180,6 @@ func TestSeriesStreamOffsetIndex_GetStreamTimestampOffset(t *testing.T) {
 	f := fields{
 		db:      indexDB.db,
 		batcher: indexDB.batcher,
-		cancel:  indexDB.cancel,
 	}
 	tests := []struct {
 		name    string
@@ -307,7 +304,6 @@ func TestSeriesStreamOffsetIndex_GetStreamTimestampOffset(t *testing.T) {
 			index := &SeriesStreamOffsetIndex{
 				db:      tt.fields.db,
 				batcher: tt.fields.batcher,
-				cancel:  tt.fields.cancel,
 			}
 			got, err := index.GetStreamTimestampOffset(tt.args.streamID, tt.args.timestampMS, tt.args.LE)
 			if (err != nil) != tt.wantErr {

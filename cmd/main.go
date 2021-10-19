@@ -15,7 +15,9 @@ import (
 
 func main() {
 
-	tsdb, err := yatsdb.OpenTSDB()
+	tsdb, err := yatsdb.OpenTSDB(yatsdb.Options{
+		BadgerDBStorePath: "yatsdb-store",
+	})
 	if err != nil {
 		logrus.Panicf("openTSDB failed %+v", err)
 	}

@@ -17,6 +17,9 @@ type StreamTimestampOffsetGetter interface {
 	//LE less or equal
 	GetStreamTimestampOffset(streamID StreamID, timestampMS int64, LE bool) (int64, error)
 }
+type OffsetIndexUpdater interface {
+	SetStreamTimestampOffset(offset SeriesStreamOffset, callback func(err error))
+}
 
 //SeriesStreamOffset
 type SeriesStreamOffset struct {
@@ -28,10 +31,14 @@ type SeriesStreamOffset struct {
 	Offset int64
 }
 
+type OffsetDB interface {
+	StreamTimestampOffsetGetter
+	OffsetIndexUpdater
+}
+
 type SeriesStreamOffsetIndex struct {
 	db      *badger.DB
 	batcher *badgerbatcher.BadgerDBBatcher
-	cancel  context.CancelFunc
 }
 
 const (
@@ -39,12 +46,18 @@ const (
 	offsetPrefixLen = len(STOffsetPrefix)
 )
 
+func NewSeriesStreamOffsetIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) *SeriesStreamOffsetIndex {
+	return &SeriesStreamOffsetIndex{
+		db:      db,
+		batcher: batcher,
+	}
+}
+
 func OpenStreamTimestampOffsetIndex(ctx context.Context, storePath string) (*SeriesStreamOffsetIndex, error) {
 	db, err := badger.Open(badger.DefaultOptions(storePath))
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(ctx)
 	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 64, db)
 	batcher.Start()
 	go func() {
@@ -60,12 +73,7 @@ func OpenStreamTimestampOffsetIndex(ctx context.Context, storePath string) (*Ser
 	return &SeriesStreamOffsetIndex{
 		db:      db,
 		batcher: batcher,
-		cancel:  cancel,
 	}, nil
-}
-
-func (index *SeriesStreamOffsetIndex) Close() {
-	index.cancel()
 }
 
 var ErrNoFindOffset = errors.New("streamID offset no find ")
