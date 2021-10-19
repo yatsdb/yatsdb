@@ -25,7 +25,7 @@ type IndexInserter interface {
 }
 
 type IndexMatcher interface {
-	Matcher(matcher ...*prompb.LabelMatcher) ([]StreamMetric, error)
+	Matches(matcher ...*prompb.LabelMatcher) ([]StreamMetric, error)
 }
 
 type Index struct {
@@ -34,10 +34,9 @@ type Index struct {
 }
 
 type BadgerIndex struct {
-	db      *badger.DB
-	batcher *badgerbatcher.BadgerDBBatcher
-
-	streamIDsLocker sync.Mutex
+	db              *badger.DB
+	batcher         *badgerbatcher.BadgerDBBatcher
+	streamIDsLocker *sync.Mutex
 	streamIDs       map[StreamID]bool
 }
 
@@ -59,7 +58,7 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 	return &BadgerIndex{
 		db:              db,
 		batcher:         badgerbatcher.NewBadgerDBBatcher(ctx, 32, db).Start(),
-		streamIDsLocker: sync.Mutex{},
+		streamIDsLocker: &sync.Mutex{},
 		streamIDs:       make(map[StreamID]bool, 1024),
 	}, nil
 }
@@ -86,16 +85,30 @@ func (index *BadgerIndex) Insert(streamMetric StreamMetric) error {
 		var IDBuf = make([]byte, 8)
 		binary.BigEndian.PutUint64(IDBuf, uint64(streamMetric.StreamID))
 		for _, label := range streamMetric.Labels {
-			buf := make([]byte, len(invertedKeyPrefix)+len(sep)+len(label.Name)+len(label.Value)+len(sep)+8)
+			buf := make([]byte, len(invertedKeyPrefix)+
+				len(sep)+len(label.Name)+
+				len(sep)+len(label.Value)+
+				len(sep)+8)
 			key := buf
 			//copy name
-			n := copy(buf, invertedKeyPrefix+string(sep)+label.Name)
+			n := copy(buf, invertedKeyPrefix)
 			buf = buf[n:]
 			//copy sep
 			n = copy(buf, sep)
 			buf = buf[n:]
+			//copy label Name
+			n = copy(buf, []byte(label.Name))
+			buf = buf[n:]
+
+			//copy sep
+			n = copy(buf, sep)
+			buf = buf[n:]
 			//copy label value
-			n = copy(buf, label.Value)
+			n = copy(buf, []byte(label.Value))
+			buf = buf[n:]
+
+			//copy sep
+			n = copy(buf, sep)
 			buf = buf[n:]
 			//copy ID
 			n = copy(buf, IDBuf)
@@ -122,7 +135,7 @@ func (index *BadgerIndex) Insert(streamMetric StreamMetric) error {
 	return nil
 }
 
-func (index *BadgerIndex) Matcher(labelMatchers ...*prompb.LabelMatcher) ([]StreamMetric, error) {
+func (index *BadgerIndex) Matches(labelMatchers ...*prompb.LabelMatcher) ([]StreamMetric, error) {
 	var result []StreamMetric
 	LabelMatchersSort(labelMatchers)
 	err := index.db.View(func(txn *badger.Txn) error {
@@ -163,6 +176,7 @@ func (index *BadgerIndex) Matcher(labelMatchers ...*prompb.LabelMatcher) ([]Stre
 				opts.Prefix = []byte(invertedKeyPrefix + string(sep) +
 					firstMatcher.labelsMatcher.Name + string(sep) +
 					firstMatcher.labelsMatcher.Value + string(sep))
+				matchers = matchers[1:]
 			}
 			var streamIDs []StreamID
 			iter := txn.NewIterator(opts)

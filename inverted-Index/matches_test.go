@@ -27,6 +27,7 @@ func TestMetricsMatches(t *testing.T) {
 		args args
 		want []StreamMetric
 	}{
+
 		{
 			name: "Simple equals.",
 			args: args{
