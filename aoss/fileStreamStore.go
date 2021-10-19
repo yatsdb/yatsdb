@@ -85,6 +85,11 @@ func (fsStore *FileStreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser,
 		return nil, errors.WithStack(err)
 	}
 	reader := os.NewFile(uintptr(fd2), fs.filepath)
+	if _, err := reader.Seek(0, io.SeekStart); err != nil {
+		_ = reader.Close()
+		fsStore.mtx.Unlock()
+		return nil, err
+	}
 	fsStore.mtx.Unlock()
 	return reader, nil
 }
