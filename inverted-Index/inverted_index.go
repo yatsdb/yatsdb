@@ -58,7 +58,7 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 		for {
 			select {
 			case <-time.After(time.Minute * 5):
-				db.RunValueLogGC(0.5)
+				_ = db.RunValueLogGC(0.5)
 			case <-ctx.Done():
 				return
 			}
