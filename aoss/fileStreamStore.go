@@ -39,7 +39,7 @@ func OpenFileStreamStore(dir string) (*FileStreamStore, error) {
 	}
 	fileStreams := make(map[StreamID]*fileStream)
 
-	filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
+	err = filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
 		}
@@ -61,6 +61,9 @@ func OpenFileStreamStore(dir string) (*FileStreamStore, error) {
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	return &FileStreamStore{
 		mtx:         &sync.Mutex{},
