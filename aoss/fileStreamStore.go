@@ -120,6 +120,13 @@ func (fsStore *FileStreamStore) Append(streamID StreamID, data []byte, fn func(o
 			<-fsStore.pipelines
 		}()
 		fs.Mutex.Lock()
+		//current file size
+		info, err := fs.f.Stat()
+		if err != nil {
+			fs.Mutex.Lock()
+			fn(0, errors.WithStack(err))
+			return
+		}
 		if _, err := fs.f.Write(data); err != nil {
 			fs.Mutex.Unlock()
 			fn(0, errors.WithStack(err))
@@ -129,12 +136,8 @@ func (fsStore *FileStreamStore) Append(streamID StreamID, data []byte, fn func(o
 				fn(0, errors.WithStack(err))
 				return
 			}
-			info, err := fs.f.Stat()
-			if err != nil {
-				fn(0, errors.WithStack(err))
-			} else {
-				fn(info.Size(), nil)
-			}
+			fs.Mutex.Unlock()
+			fn(info.Size(), nil)
 		}
 	}()
 }

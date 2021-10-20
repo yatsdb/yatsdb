@@ -23,7 +23,7 @@ func (creator *metricSampleIteratorCreater) CreateSampleSampleIterator(StreamMet
 	if err != nil {
 		return nil, err
 	}
-	if _, err := reader.Seek(io.SeekStart, int(StreamMetric.Offset)); err != nil {
+	if _, err := reader.Seek(StreamMetric.Offset, io.SeekStart); err != nil {
 		_ = reader.Close()
 		return nil, errors.WithStack(err)
 	}

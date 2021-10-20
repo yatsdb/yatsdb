@@ -2,7 +2,6 @@ package yatsdb
 
 import (
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/sirupsen/logrus"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
 )
@@ -29,8 +28,9 @@ func (querier *streamMetricQuerier) QueryStreamMetric(query *prompb.Query) ([]*S
 		}
 		offsetEnd, err := querier.streamTimestampOffsetGetter.GetStreamTimestampOffset(metric.StreamID, query.StartTimestampMs, true)
 		if err != nil {
-			logrus.Warnf("GetStreamTimestampOffset end offset failed %s", err.Error())
-			continue
+			if err == ssoffsetindex.ErrNoFindOffset {
+				offsetEnd = offsetStart + 1024*1024*4
+			}
 		}
 		offset = append(offset, &StreamMetricOffset{
 			StreamMetric:     metric,

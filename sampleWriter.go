@@ -36,6 +36,7 @@ func (writer *samplesWriter) Write(ID StreamID, samples []prompb.Sample, fn Writ
 		panic("encode samples error")
 	}
 	writer.streamAppender.Append(ID, data, func(offset int64, err error) {
+		logrus.Debugf("stream append callback")
 		if err != nil {
 			logrus.Errorf("append stream failed %s", err.Error())
 			fn(SeriesStreamOffset{}, err)

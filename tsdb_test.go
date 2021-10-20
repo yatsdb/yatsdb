@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/sirupsen/logrus"
 )
 
 func TestOpenTSDB(t *testing.T) {
@@ -44,8 +45,10 @@ func TestOpenTSDB(t *testing.T) {
 }
 
 func Test_tsdb_WriteSamples(t *testing.T) {
+	logrus.SetLevel(logrus.DebugLevel)
+
 	t.Cleanup(func() {
-		os.RemoveAll(t.Name())
+		//	os.RemoveAll(t.Name())
 	})
 
 	tsdb, err := OpenTSDB(Options{
@@ -68,16 +71,45 @@ func Test_tsdb_WriteSamples(t *testing.T) {
 			args: args{
 				request: &prompb.WriteRequest{
 					Timeseries: []prompb.TimeSeries{
-						prompb.TimeSeries{
-							Labels: []prompb.Label{
-								prompb.Label{Name: "a", Value: "1"},
-								prompb.Label{Name: "b", Value: "2"},
-								prompb.Label{Name: "c", Value: "3"},
-							},
+						{
+							Labels: []prompb.Label{{Name: "n", Value: "1"}},
 							Samples: []prompb.Sample{
-								prompb.Sample{Value: 1, Timestamp: 1},
-								prompb.Sample{Value: 2, Timestamp: 2},
-							},
+								{Timestamp: 1, Value: 1},
+								{Timestamp: 2, Value: 2},
+								{Timestamp: 3, Value: 3},
+								{Timestamp: 4, Value: 4}},
+						},
+						{
+							Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+							Samples: []prompb.Sample{
+								{Timestamp: 1, Value: 1},
+								{Timestamp: 2, Value: 2},
+								{Timestamp: 3, Value: 3},
+								{Timestamp: 4, Value: 4}},
+						},
+						{
+							Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+							Samples: []prompb.Sample{
+								{Timestamp: 1, Value: 1},
+								{Timestamp: 2, Value: 2},
+								{Timestamp: 3, Value: 3},
+								{Timestamp: 4, Value: 4}},
+						},
+						{
+							Labels: []prompb.Label{{Name: "n", Value: "2"}},
+							Samples: []prompb.Sample{
+								{Timestamp: 1, Value: 1},
+								{Timestamp: 2, Value: 2},
+								{Timestamp: 3, Value: 3},
+								{Timestamp: 4, Value: 4}},
+						},
+						{
+							Labels: []prompb.Label{{Name: "n", Value: "2.5"}},
+							Samples: []prompb.Sample{
+								{Timestamp: 1, Value: 1},
+								{Timestamp: 2, Value: 2},
+								{Timestamp: 3, Value: 3},
+								{Timestamp: 4, Value: 4}},
 						},
 					},
 				},
@@ -95,7 +127,7 @@ func Test_tsdb_WriteSamples(t *testing.T) {
 }
 
 func Test_tsdb_ReadSimples(t *testing.T) {
-
+	logrus.SetLevel(logrus.DebugLevel)
 	t.Cleanup(func() {
 		os.RemoveAll(t.Name())
 	})
@@ -153,8 +185,6 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 	if err != nil {
 		t.Fatal(err.Error())
 	}
-
-	t.Log("write sample success")
 
 	type args struct {
 		req *prompb.ReadRequest

@@ -2,6 +2,8 @@ package yatsdb
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"sort"
 	"sync"
@@ -124,6 +126,11 @@ func OpenTSDB(options Options) (TSDB, error) {
 	return tsdb, nil
 }
 
+func JS(obj interface{}) string {
+	data, _ := json.MarshalIndent(obj, "", "    ")
+	return string(data)
+}
+
 func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
 	var response prompb.ReadResponse
 	var closers []io.Closer
@@ -139,6 +146,7 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 		}
 		var QueryResult prompb.QueryResult
 		for _, streamMetric := range streamMetrics {
+			fmt.Println(JS(streamMetric))
 			it, err := tsdb.metricStreamReader.CreateSampleSampleIterator(streamMetric)
 			if err != nil {
 				logrus.Errorf("createStreamReader failed %+v", err)
@@ -146,18 +154,14 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 			}
 			closers = append(closers, it)
 			var timeSeries prompb.TimeSeries
-			for _, label := range streamMetric.Labels {
-				timeSeries.Labels = append(timeSeries.Labels, prompb.Label{
-					Name:  string(label.Name),
-					Value: string(label.Value),
-				})
-			}
+			timeSeries.Labels = append(timeSeries.Labels, streamMetric.Labels...)
 			for {
 				sample, err := it.Next()
 				if err != nil {
 					if err != io.EOF {
 						logrus.Errorf("get sample error %+v", err)
 					}
+					logrus.Debugf("read sample EOF")
 					break
 				}
 				timeSeries.Samples = append(timeSeries.Samples, sample)
@@ -198,6 +202,7 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 		tsdb.samplesWriter.Write(streamID,
 			timeSeries.Samples,
 			func(offset SeriesStreamOffset, err error) {
+				logrus.Debugf("write sample callback")
 				if err != nil {
 					wg.Done()
 					logrus.Errorf("write samples failed %+v", err)
@@ -208,6 +213,7 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 					return
 				}
 				tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
+					logrus.Debugf("SetStreamTimestampOffset callback")
 					wg.Done()
 					if err != nil {
 						logrus.Errorf("set timestamp stream offset failed %+v", err)
