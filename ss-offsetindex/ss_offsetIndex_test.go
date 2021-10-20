@@ -59,7 +59,6 @@ func TestSeriesStreamOffsetIndex_SetStreamTimestampOffset(t *testing.T) {
 	type fields struct {
 		db      *badger.DB
 		batcher *badgerbatcher.BadgerDBBatcher
-		cancel  context.CancelFunc
 	}
 	type args struct {
 		offset SeriesStreamOffset
@@ -170,7 +169,6 @@ func TestSeriesStreamOffsetIndex_GetStreamTimestampOffset(t *testing.T) {
 	type fields struct {
 		db      *badger.DB
 		batcher *badgerbatcher.BadgerDBBatcher
-		cancel  context.CancelFunc
 	}
 	type args struct {
 		streamID    StreamID

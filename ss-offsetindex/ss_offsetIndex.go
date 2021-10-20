@@ -64,7 +64,7 @@ func OpenStreamTimestampOffsetIndex(ctx context.Context, storePath string) (*Ser
 		for {
 			select {
 			case <-time.After(time.Minute * 5):
-				db.RunValueLogGC(0.5)
+				_ = db.RunValueLogGC(0.5)
 			case <-ctx.Done():
 				return
 			}
