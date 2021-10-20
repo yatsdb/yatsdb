@@ -200,9 +200,9 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 			args: args{
 				req: &prompb.ReadRequest{
 					Queries: []*prompb.Query{
-						&prompb.Query{
+						{
 							Matchers: []*prompb.LabelMatcher{
-								&prompb.LabelMatcher{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 							},
 							StartTimestampMs: 0,
 							EndTimestampMs:   5,
@@ -212,9 +212,9 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 			},
 			want: &prompb.ReadResponse{
 				Results: []*prompb.QueryResult{
-					&prompb.QueryResult{
+					{
 						Timeseries: []*prompb.TimeSeries{
-							&prompb.TimeSeries{
+							{
 								Labels: []prompb.Label{{Name: "n", Value: "1"}},
 								Samples: []prompb.Sample{
 									{Timestamp: 1, Value: 1},
@@ -223,7 +223,7 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 									{Timestamp: 4, Value: 4},
 								},
 							},
-							&prompb.TimeSeries{
+							{
 								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
 								Samples: []prompb.Sample{
 									{Timestamp: 1, Value: 1},
@@ -232,13 +232,1095 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 									{Timestamp: 4, Value: 4},
 								},
 							},
-							&prompb.TimeSeries{
+							{
 								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
 								Samples: []prompb.Sample{
 									{Timestamp: 1, Value: 1},
 									{Timestamp: 2, Value: 2},
 									{Timestamp: 3, Value: 3},
 									{Timestamp: 4, Value: 4},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   1,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+							},
+							StartTimestampMs: 5,
+							EndTimestampMs:   5,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+							},
+							StartTimestampMs: 4,
+							EndTimestampMs:   500,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels:  []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{{Timestamp: 4, Value: 4}},
+							},
+							{
+								Labels:  []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{{Timestamp: 4, Value: 4}},
+							},
+							{
+								Labels:  []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{{Timestamp: 4, Value: 4}},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "a"},
+							},
+							StartTimestampMs: 0,
+							EndTimestampMs:   500,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+									{Timestamp: 3, Value: 3},
+									{Timestamp: 4, Value: 4},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "missing"},
+							},
+							StartTimestampMs: 0,
+							EndTimestampMs:   500,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "missing", Value: ""},
+							},
+							StartTimestampMs: 0,
+							EndTimestampMs:   500,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+									{Timestamp: 3, Value: 3},
+									{Timestamp: 4, Value: 4},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+									{Timestamp: 3, Value: 3},
+									{Timestamp: 4, Value: 4},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+									{Timestamp: 3, Value: 3},
+									{Timestamp: 4, Value: 4},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+									{Timestamp: 3, Value: 3},
+									{Timestamp: 4, Value: 4}},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2.5"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+									{Timestamp: 3, Value: 3},
+									{Timestamp: 4, Value: 4}},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_NEQ, Name: "n", Value: "1"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2.5"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_NEQ, Name: "missing", Value: ""},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: "a"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_RE, Name: "n", Value: "^1$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a?$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2.5"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.*$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.+$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_NRE, Name: "n", Value: "^1$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2.5"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^a?"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.*$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.+$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
+								{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "b"},
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^(b|a).*$"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_RE, Name: "n", Value: "1|2"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "a|b"},
+							},
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "a"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}, {Name: "i", Value: "b"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_RE, Name: "n", Value: "x2|2"},
+							},
+
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_RE, Name: "n", Value: "2|2\\.5"},
+							},
+
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2.5"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+
+			args: args{
+				req: &prompb.ReadRequest{
+					Queries: []*prompb.Query{
+						{
+							Matchers: []*prompb.LabelMatcher{
+								{Type: prompb.LabelMatcher_RE, Name: "i", Value: "c||d"},
+							},
+
+							StartTimestampMs: 1,
+							EndTimestampMs:   2,
+						},
+					},
+				},
+			},
+			want: &prompb.ReadResponse{
+				Results: []*prompb.QueryResult{
+					{
+						Timeseries: []*prompb.TimeSeries{
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "1"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
+								},
+							},
+							{
+								Labels: []prompb.Label{{Name: "n", Value: "2.5"}},
+								Samples: []prompb.Sample{
+									{Timestamp: 1, Value: 1},
+									{Timestamp: 2, Value: 2},
 								},
 							},
 						},
