@@ -19,6 +19,9 @@ type BadgerDBBatcher struct {
 }
 
 func NewBadgerDBBatcher(ctx context.Context, maxBatchSize int, db *badger.DB) *BadgerDBBatcher {
+	if maxBatchSize == 0 {
+		maxBatchSize = 32
+	}
 	return &BadgerDBBatcher{
 		batchSize: maxBatchSize,
 		db:        db,
@@ -28,31 +31,41 @@ func NewBadgerDBBatcher(ctx context.Context, maxBatchSize int, db *badger.DB) *B
 }
 
 func (batcher *BadgerDBBatcher) Update(Op BadgerOP) {
+	logrus.Debugf("batcher Update")
 	select {
 	case batcher.opCh <- Op:
 	case <-batcher.ctx.Done():
+		logrus.Warnf("context cancel %s", batcher.ctx.Err())
 		Op.Commit(batcher.ctx.Err())
 	}
 }
 func (batcher *BadgerDBBatcher) Start() *BadgerDBBatcher {
 	go func() {
 		for {
-			ops := append([]BadgerOP{}, <-batcher.opCh)
-			for {
-				select {
-				case op := <-batcher.opCh:
-					ops = append([]BadgerOP{}, op)
-					if len(ops) < batcher.batchSize {
-						continue
+			var ops []BadgerOP
+			select {
+			case <-batcher.ctx.Done():
+				return
+			case op := <-batcher.opCh:
+				ops = append(ops, op)
+				//batch update
+				for {
+					select {
+					case op := <-batcher.opCh:
+						ops = append(ops, op)
+						if len(ops) < batcher.batchSize {
+							continue
+						}
+					default:
 					}
-				default:
+					break
 				}
-				break
 			}
 			var toCommits = make([]func(err error), 0, len(ops))
 			if err := batcher.db.Update(func(txn *badger.Txn) error {
 				for _, op := range ops {
 					if err := op.Op(txn); err != nil {
+						logrus.Warnf("db update failed %+v", err)
 						op.Commit(err)
 					} else {
 						toCommits = append(toCommits, op.Commit)
@@ -68,6 +81,7 @@ func (batcher *BadgerDBBatcher) Start() *BadgerDBBatcher {
 			}
 			for _, commit := range toCommits {
 				commit(nil)
+				logrus.Debugf("batcher committed")
 			}
 		}
 	}()
