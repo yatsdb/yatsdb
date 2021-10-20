@@ -117,14 +117,15 @@ func (fsStore *FileStreamStore) Append(streamID StreamID, data []byte, fn func(o
 
 	go func() {
 		defer func() {
-			fs.Mutex.Unlock()
 			<-fsStore.pipelines
 		}()
 		fs.Mutex.Lock()
 		if _, err := fs.f.Write(data); err != nil {
+			fs.Mutex.Unlock()
 			fn(0, errors.WithStack(err))
 		} else {
 			if err := fs.f.Sync(); err != nil {
+				fs.Mutex.Unlock()
 				fn(0, errors.WithStack(err))
 				return
 			}
