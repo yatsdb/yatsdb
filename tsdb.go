@@ -3,7 +3,6 @@ package yatsdb
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"sort"
 	"sync"
@@ -146,7 +145,6 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 		}
 		var QueryResult prompb.QueryResult
 		for _, streamMetric := range streamMetrics {
-			fmt.Println(JS(streamMetric))
 			it, err := tsdb.metricStreamReader.CreateSampleSampleIterator(streamMetric)
 			if err != nil {
 				logrus.Errorf("createStreamReader failed %+v", err)
@@ -161,7 +159,6 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 					if err != io.EOF {
 						logrus.Errorf("get sample error %+v", err)
 					}
-					logrus.Debugf("read sample EOF")
 					break
 				}
 				timeSeries.Samples = append(timeSeries.Samples, sample)
@@ -171,7 +168,7 @@ func (tsdb *tsdb) ReadSimples(req *prompb.ReadRequest) (*prompb.ReadResponse, er
 		response.Results = append(response.Results, &QueryResult)
 	}
 
-	return nil, nil
+	return &response, nil
 }
 
 func toLabels(pLabels []prompb.Label) labels.Labels {
@@ -202,7 +199,6 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 		tsdb.samplesWriter.Write(streamID,
 			timeSeries.Samples,
 			func(offset SeriesStreamOffset, err error) {
-				logrus.Debugf("write sample callback")
 				if err != nil {
 					wg.Done()
 					logrus.Errorf("write samples failed %+v", err)
@@ -213,7 +209,6 @@ func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 					return
 				}
 				tsdb.offsetIndexUpdater.SetStreamTimestampOffset(offset, func(err error) {
-					logrus.Debugf("SetStreamTimestampOffset callback")
 					wg.Done()
 					if err != nil {
 						logrus.Errorf("set timestamp stream offset failed %+v", err)

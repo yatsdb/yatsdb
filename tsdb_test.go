@@ -3,6 +3,7 @@ package yatsdb
 import (
 	"os"
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/prometheus/prometheus/prompb"
@@ -253,9 +254,21 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 				t.Errorf("tsdb.ReadSimples() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+
+			SortQueryResponse(got)
+			SortQueryResponse(tt.want)
+
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("tsdb.ReadSimples() = %v, want %v", got, tt.want)
+				t.Errorf("tsdb.ReadSimples() = \n%v\n, want \n%v\n", JS(got), JS(tt.want))
 			}
+		})
+	}
+}
+
+func SortQueryResponse(response *prompb.ReadResponse) {
+	for index := range response.Results {
+		sort.Slice(response.Results[index].Timeseries, func(i, j int) bool {
+			return JS(response.Results[index].Timeseries[i]) < JS(response.Results[index].Timeseries[j])
 		})
 	}
 }

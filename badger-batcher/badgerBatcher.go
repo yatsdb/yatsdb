@@ -31,7 +31,6 @@ func NewBadgerDBBatcher(ctx context.Context, maxBatchSize int, db *badger.DB) *B
 }
 
 func (batcher *BadgerDBBatcher) Update(Op BadgerOP) {
-	logrus.Debugf("batcher Update")
 	select {
 	case batcher.opCh <- Op:
 	case <-batcher.ctx.Done():
@@ -81,7 +80,6 @@ func (batcher *BadgerDBBatcher) Start() *BadgerDBBatcher {
 			}
 			for _, commit := range toCommits {
 				commit(nil)
-				logrus.Debugf("batcher committed")
 			}
 		}
 	}()

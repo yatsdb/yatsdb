@@ -61,6 +61,7 @@ func (si *sampleIterator) Next() (prompb.Sample, error) {
 		if sample.Timestamp > si.offset.EndTimestampMs {
 			return sample, io.EOF
 		}
+		return sample, nil
 	}
 }
 
