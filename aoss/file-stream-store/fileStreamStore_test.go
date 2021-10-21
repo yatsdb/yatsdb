@@ -1,4 +1,4 @@
-package aoss
+package filestreamstore
 
 import (
 	"bytes"

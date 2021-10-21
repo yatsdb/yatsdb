@@ -9,7 +9,7 @@ import (
 	"github.com/golang/snappy"
 	"github.com/sirupsen/logrus"
 	"github.com/yatsdb/yatsdb"
-	"github.com/yatsdb/yatsdb/aoss"
+	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote"
@@ -20,7 +20,7 @@ func main() {
 
 	tsdb, err := yatsdb.OpenTSDB(yatsdb.Options{
 		BadgerDBStoreDir: "data/index",
-		FileStreamStoreOptions: aoss.FileStreamStoreOptions{
+		FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
 			Dir:            "data/fileStream",
 			SyncWrite:      false,
 			WriteGorutines: 128,

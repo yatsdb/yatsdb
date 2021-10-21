@@ -1,6 +1,7 @@
 package yatsdb
 
 import (
+	"context"
 	"os"
 	"reflect"
 	"sort"
@@ -8,7 +9,7 @@ import (
 
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
-	"github.com/yatsdb/yatsdb/aoss"
+	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 )
 
 func TestOpenTSDB(t *testing.T) {
@@ -27,7 +28,7 @@ func TestOpenTSDB(t *testing.T) {
 			args: args{
 				options: Options{
 					BadgerDBStoreDir: t.Name() + "/badgerdbstore",
-					FileStreamStoreOptions: aoss.FileStreamStoreOptions{
+					FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
 						Dir: t.Name() + "/fileStreamStore",
 					},
 				},
@@ -57,7 +58,7 @@ func Test_tsdb_WriteSamples(t *testing.T) {
 
 	tsdb, err := OpenTSDB(Options{
 		BadgerDBStoreDir: t.Name() + "/badgerdbstore",
-		FileStreamStoreOptions: aoss.FileStreamStoreOptions{
+		FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
 			Dir: t.Name() + "/fileStreamStore",
 		},
 	})
@@ -140,7 +141,7 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 
 	tsdb, err := OpenTSDB(Options{
 		BadgerDBStoreDir: t.Name() + "/badgerdbstore",
-		FileStreamStoreOptions: aoss.FileStreamStoreOptions{
+		FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
 			Dir: t.Name() + "/fileStreamStore",
 		},
 	})
@@ -1338,7 +1339,7 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tsdb.ReadSamples(tt.args.req)
+			got, err := tsdb.ReadSamples(context.Background(), tt.args.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("tsdb.ReadSimples() error = %v, wantErr %v", err, tt.wantErr)
 				return
