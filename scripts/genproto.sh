@@ -31,7 +31,10 @@ GOGOPROTO_PATH="${GOGOPROTO_ROOT}:${GOGOPROTO_ROOT}/protobuf"
 GRPC_GATEWAY_ROOT="$(GO111MODULE=on go list -mod=readonly -f '{{ .Dir }}' -m github.com/grpc-ecosystem/grpc-gateway)"
 PROMETHUES_ROOT="$(GO111MODULE=on go list -mod=readonly -f '{{ .Dir }}' -m github.com/prometheus/prometheus)"
 
-DIRS="inverted-Index"
+DIRS="
+inverted-Index
+aoss/stream-store/pb
+"
 
 echo "generating code"
 for dir in ${DIRS}; do

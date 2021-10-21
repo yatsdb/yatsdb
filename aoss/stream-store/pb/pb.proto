@@ -1,0 +1,18 @@
+syntax = "proto3";
+package yatsdb;
+
+option go_package = "streamstorepb";
+
+import "gogoproto/gogo.proto";
+
+
+message Entry{
+    uint64 stream_id = 1 [(gogoproto.customtype) = "StreamID" ,(gogoproto.nullable) = false];
+    bytes data = 2 ;
+    //wal ID
+    uint64 ID = 3;
+}
+
+message EntryBatch{
+    repeated Entry entries = 1 [(gogoproto.nullable) = false];
+}
