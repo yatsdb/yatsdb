@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
+	"github.com/yatsdb/yatsdb/aoss"
 )
 
 func TestOpenTSDB(t *testing.T) {
@@ -25,8 +26,10 @@ func TestOpenTSDB(t *testing.T) {
 		{
 			args: args{
 				options: Options{
-					BadgerDBStoreDir:   t.Name() + "/badgerdbstore",
-					FileStreamStoreDir: t.Name() + "/fileStreamStore",
+					BadgerDBStoreDir: t.Name() + "/badgerdbstore",
+					FileStreamStoreOptions: aoss.FileStreamStoreOptions{
+						Dir: t.Name() + "/fileStreamStore",
+					},
 				},
 			},
 		},
@@ -53,8 +56,10 @@ func Test_tsdb_WriteSamples(t *testing.T) {
 	})
 
 	tsdb, err := OpenTSDB(Options{
-		BadgerDBStoreDir:   t.Name() + "/badgerdbstore",
-		FileStreamStoreDir: t.Name() + "/fileStreamStore",
+		BadgerDBStoreDir: t.Name() + "/badgerdbstore",
+		FileStreamStoreOptions: aoss.FileStreamStoreOptions{
+			Dir: t.Name() + "/fileStreamStore",
+		},
 	})
 	if err != nil {
 		t.Fatalf(err.Error())
@@ -134,8 +139,10 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 	})
 
 	tsdb, err := OpenTSDB(Options{
-		BadgerDBStoreDir:   t.Name() + "/badgerdbstore",
-		FileStreamStoreDir: t.Name() + "/fileStreamStore",
+		BadgerDBStoreDir: t.Name() + "/badgerdbstore",
+		FileStreamStoreOptions: aoss.FileStreamStoreOptions{
+			Dir: t.Name() + "/fileStreamStore",
+		},
 	})
 	if err != nil {
 		t.Fatalf(err.Error())
@@ -1331,7 +1338,7 @@ func Test_tsdb_ReadSimples(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tsdb.ReadSimples(tt.args.req)
+			got, err := tsdb.ReadSamples(tt.args.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("tsdb.ReadSimples() error = %v, wantErr %v", err, tt.wantErr)
 				return

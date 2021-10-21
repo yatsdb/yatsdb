@@ -16,7 +16,11 @@ func Test_sampleIterator_Next(t *testing.T) {
 	t.Cleanup(func() {
 		os.RemoveAll(t.Name())
 	})
-	streamStore, err := aoss.OpenFileStreamStore(t.Name())
+	streamStore, err := aoss.OpenFileStreamStore(aoss.FileStreamStoreOptions{
+		Dir:            t.Name(),
+		SyncWrite:      true,
+		WriteGorutines: 12,
+	})
 	if err != nil {
 		t.Fatal(err.Error())
 	}

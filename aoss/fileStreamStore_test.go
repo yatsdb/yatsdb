@@ -2,12 +2,14 @@ package aoss
 
 import (
 	"bytes"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"sync"
 	"testing"
 
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
+	"gopkg.in/stretchr/testify.v1/assert"
 )
 
 func TestOpenFileStreamStore(t *testing.T) {
@@ -31,7 +33,11 @@ func TestOpenFileStreamStore(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := OpenFileStreamStore(tt.args.dir)
+			got, err := OpenFileStreamStore(FileStreamStoreOptions{
+				Dir:            tt.args.dir,
+				SyncWrite:      true,
+				WriteGorutines: 128,
+			})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("OpenFileStreamStore() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -48,38 +54,32 @@ func TestFileStreamStore_Append(t *testing.T) {
 		_ = os.RemoveAll(t.Name())
 	})
 
-	fsStore, err := OpenFileStreamStore(t.Name())
+	fsStore, err := OpenFileStreamStore(FileStreamStoreOptions{
+		Dir:            t.Name(),
+		SyncWrite:      false,
+		WriteGorutines: 128,
+	})
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
 
-	type fields struct {
-		mtx         *sync.Mutex
-		fileStreams map[StreamID]*fileStream
-		baseDir     string
-		pipelines   chan interface{}
+	if fsStore.Dir == "" {
+		t.Fatal("fsStore.Dir empty")
 	}
+
 	type args struct {
 		streamID StreamID
 		data     []byte
 		fn       func(offset int64, err error)
 	}
-	f := fields{
-		mtx:         fsStore.mtx,
-		fileStreams: fsStore.fileStreams,
-		baseDir:     fsStore.baseDir,
-		pipelines:   fsStore.pipelines,
-	}
 
 	var wg sync.WaitGroup
 
 	tests := []struct {
-		name   string
-		fields fields
-		args   args
+		name string
+		args args
 	}{
 		{
-			fields: f,
 			args: args{
 				streamID: invertedindex.StreamID(1),
 				data:     []byte("hello"),
@@ -92,7 +92,6 @@ func TestFileStreamStore_Append(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
 			args: args{
 				streamID: invertedindex.StreamID(1),
 				data:     []byte("hello"),
@@ -105,7 +104,6 @@ func TestFileStreamStore_Append(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
 			args: args{
 				streamID: invertedindex.StreamID(1),
 				data:     []byte("hello"),
@@ -118,7 +116,7 @@ func TestFileStreamStore_Append(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{
 				streamID: invertedindex.StreamID(1),
 				data:     []byte("hello"),
@@ -131,7 +129,6 @@ func TestFileStreamStore_Append(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
 			args: args{
 				streamID: invertedindex.StreamID(2),
 				data:     []byte("hello"),
@@ -147,12 +144,6 @@ func TestFileStreamStore_Append(t *testing.T) {
 	for _, tt := range tests {
 		wg.Add(1)
 		t.Run(tt.name, func(t *testing.T) {
-			fsStore := &FileStreamStore{
-				mtx:         tt.fields.mtx,
-				fileStreams: tt.fields.fileStreams,
-				baseDir:     tt.fields.baseDir,
-				pipelines:   tt.fields.pipelines,
-			}
 			fsStore.Append(tt.args.streamID, tt.args.data, tt.args.fn)
 		})
 	}
@@ -165,7 +156,11 @@ func TestFileStreamStore_NewReader(t *testing.T) {
 		_ = os.RemoveAll(t.Name())
 	})
 
-	fsStore, err := OpenFileStreamStore(t.Name())
+	fsStore, err := OpenFileStreamStore(FileStreamStoreOptions{
+		Dir:            t.Name(),
+		SyncWrite:      false,
+		WriteGorutines: 12,
+	})
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -212,45 +207,28 @@ func TestFileStreamStore_NewReader(t *testing.T) {
 		}
 	}
 
-	type fields struct {
-		fileStreams map[StreamID]*fileStream
-		mtx         *sync.Mutex
-		baseDir     string
-		pipelines   chan interface{}
-	}
-
 	type args struct {
 		streamID StreamID
 	}
-	f := fields{
-		fileStreams: fsStore.fileStreams,
-		mtx:         fsStore.mtx,
-		baseDir:     fsStore.baseDir,
-		pipelines:   fsStore.pipelines,
-	}
 	tests := []struct {
 		name    string
-		fields  fields
 		args    args
 		want    []byte
 		wantErr bool
 	}{
 		{
-			fields: f,
 			args: args{
 				streamID: 1,
 			},
 			want: []byte(bytesWrites[1]),
 		},
 		{
-			fields: f,
 			args: args{
 				streamID: 2,
 			},
 			want: []byte(bytesWrites[2]),
 		},
 		{
-			fields: f,
 			args: args{
 				streamID: 3,
 			},
@@ -259,12 +237,6 @@ func TestFileStreamStore_NewReader(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			fsStore := &FileStreamStore{
-				fileStreams: tt.fields.fileStreams,
-				mtx:         tt.fields.mtx,
-				baseDir:     tt.fields.baseDir,
-				pipelines:   tt.fields.pipelines,
-			}
 			reader, err := fsStore.NewReader(tt.args.streamID)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("FileStreamStore.NewReader() error = %v, wantErr %v", err, tt.wantErr)
@@ -280,6 +252,45 @@ func TestFileStreamStore_NewReader(t *testing.T) {
 			if !bytes.Equal(data, tt.want) {
 				t.Fatalf("data no equal want:\ndata:%s\nwant:%s",
 					string(data), string(tt.want))
+			}
+		})
+	}
+}
+
+func TestFileStreamStore_Close(t *testing.T) {
+
+	t.Cleanup(func() {
+		_ = os.RemoveAll(t.Name())
+	})
+
+	fsStore, err := OpenFileStreamStore(FileStreamStoreOptions{
+		Dir:            t.Name(),
+		SyncWrite:      false,
+		WriteGorutines: 128,
+	})
+	if err != nil {
+		t.Fatalf(err.Error())
+	}
+
+	for i := 0; i < 100; i++ {
+		for j := 0; j < 100; j++ {
+			_, err = fsStore.AppendSync(invertedindex.StreamID(j), []byte(fmt.Sprintf("hello world %d", j)))
+			assert.NoError(t, err)
+		}
+	}
+
+	tests := []struct {
+		name    string
+		wantErr bool
+	}{
+		{
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := fsStore.Close(); (err != nil) != tt.wantErr {
+				t.Errorf("FileStreamStore.Close() error = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
 	}

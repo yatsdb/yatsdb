@@ -12,6 +12,7 @@ require (
 	github.com/sirupsen/logrus v1.7.0
 	golang.org/x/exp v0.0.0-20200513190911-00229845015e // indirect
 	golang.org/x/sys v0.0.0-20210909193231-528a39cd75f3 // indirect
+	gopkg.in/stretchr/testify.v1 v1.2.2
 	gotest.tools/v3 v3.0.3
 
 )

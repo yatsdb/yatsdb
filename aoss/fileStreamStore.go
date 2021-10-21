@@ -20,18 +20,26 @@ type fileStream struct {
 	f        *os.File
 }
 
+type FileStreamStoreOptions struct {
+	Dir            string
+	SyncWrite      bool
+	WriteGorutines int
+}
+
 type FileStreamStore struct {
+	FileStreamStoreOptions
 	fileStreams map[StreamID]*fileStream
 	mtx         *sync.Mutex
-	baseDir     string
-
-	pipelines chan interface{}
+	pipelines   chan interface{}
 }
 
 var fileStreamExt = ".stream"
 
-func OpenFileStreamStore(dir string) (*FileStreamStore, error) {
-	err := os.MkdirAll(dir, 0777)
+func OpenFileStreamStore(options FileStreamStoreOptions) (*FileStreamStore, error) {
+	if options.WriteGorutines == 0 {
+		options.WriteGorutines = 128
+	}
+	err := os.MkdirAll(options.Dir, 0777)
 	if err != nil {
 		if err != os.ErrExist {
 			return nil, errors.WithStack(err)
@@ -39,7 +47,7 @@ func OpenFileStreamStore(dir string) (*FileStreamStore, error) {
 	}
 	fileStreams := make(map[StreamID]*fileStream)
 
-	err = filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
+	err = filepath.Walk(options.Dir, func(path string, info fs.FileInfo, err error) error {
 		if info.IsDir() {
 			return nil
 		}
@@ -66,10 +74,10 @@ func OpenFileStreamStore(dir string) (*FileStreamStore, error) {
 	}
 
 	return &FileStreamStore{
-		mtx:         &sync.Mutex{},
-		fileStreams: fileStreams,
-		baseDir:     dir,
-		pipelines:   make(chan interface{}, 128),
+		FileStreamStoreOptions: options,
+		mtx:                    &sync.Mutex{},
+		fileStreams:            fileStreams,
+		pipelines:              make(chan interface{}, options.WriteGorutines),
 	}, nil
 }
 
@@ -97,11 +105,29 @@ func (fsStore *FileStreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser,
 	return reader, nil
 }
 
+func (fsStore *FileStreamStore) AppendSync(streamID StreamID, data []byte) (offset int64, err error) {
+	var results = make(chan struct {
+		offset int64
+		err    error
+	})
+	fsStore.Append(streamID, data, func(offset int64, err error) {
+		results <- struct {
+			offset int64
+			err    error
+		}{
+			offset: offset,
+			err:    err,
+		}
+	})
+	result := <-results
+	return result.offset, result.err
+}
+
 func (fsStore *FileStreamStore) Append(streamID StreamID, data []byte, fn func(offset int64, err error)) {
 	fsStore.mtx.Lock()
 	fs := fsStore.fileStreams[invertedindex.StreamID(streamID)]
 	if fs == nil {
-		path := strings.Join([]string{fsStore.baseDir, strconv.FormatUint(uint64(streamID), 10) + fileStreamExt}, "/")
+		path := strings.Join([]string{fsStore.Dir, strconv.FormatUint(uint64(streamID), 10) + fileStreamExt}, "/")
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0666)
 		if err != nil {
 			fsStore.mtx.Unlock()
@@ -134,10 +160,12 @@ func (fsStore *FileStreamStore) Append(streamID StreamID, data []byte, fn func(o
 			fs.Mutex.Unlock()
 			fn(0, errors.WithStack(err))
 		} else {
-			if err := fs.f.Sync(); err != nil {
-				fs.Mutex.Unlock()
-				fn(0, errors.WithStack(err))
-				return
+			if fsStore.SyncWrite {
+				if err := fs.f.Sync(); err != nil {
+					fs.Mutex.Unlock()
+					fn(0, errors.WithStack(err))
+					return
+				}
 			}
 			fs.Mutex.Unlock()
 			fn(info.Size(), nil)
