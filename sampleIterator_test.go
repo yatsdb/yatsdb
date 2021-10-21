@@ -1,7 +1,9 @@
 package yatsdb
 
 import (
+	"io"
 	"os"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -25,6 +27,7 @@ func Test_sampleIterator_Next(t *testing.T) {
 
 	writeSample := func(streamID StreamID, samples ...prompb.Sample) {
 		var wg sync.WaitGroup
+		wg.Add(1)
 		writer.Write(invertedindex.StreamID(1), samples, func(offset SeriesStreamOffset, err error) {
 			wg.Done()
 			if err != nil {
@@ -34,7 +37,11 @@ func Test_sampleIterator_Next(t *testing.T) {
 		wg.Wait()
 	}
 
-	writeSample(1, prompb.Sample{Timestamp: 1, Value: 1})
+	count := 100
+
+	for i := 0; i < count; i++ {
+		writeSample(1, prompb.Sample{Timestamp: int64(count), Value: float64(count)})
+	}
 
 	creater := metricSampleIteratorCreater{
 		streamReader: streamStore,
@@ -54,11 +61,22 @@ func Test_sampleIterator_Next(t *testing.T) {
 		t.Fatalf(err.Error())
 	}
 
-	sample, err := iter.Next()
-	if err != nil {
-		t.Fatalf(err.Error())
+	nextSample := func() prompb.Sample {
+		sample, err := iter.Next()
+		if err != nil {
+			t.Fatalf(err.Error())
+		}
+		return sample
 	}
-	if sample.Timestamp != 1 || sample.Value != 1 {
-		t.Errorf("sample error %+v", sample)
+
+	for i := 0; i < count; i++ {
+		got := nextSample()
+		want := prompb.Sample{Timestamp: int64(count), Value: float64(count)}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("read sample failed got= %+v,want=%+v", got, want)
+		}
+	}
+	if _, err := iter.Next(); err != io.EOF {
+		t.Errorf("export EOF error failed")
 	}
 }
