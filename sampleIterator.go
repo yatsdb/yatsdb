@@ -40,7 +40,7 @@ func (si *sampleIterator) Next() (prompb.Sample, error) {
 
 		if _, err := io.ReadFull(si.reader, sizeBuffer[:]); err != nil {
 			if err == io.EOF {
-				return sample, err
+				return sample, io.EOF
 			}
 			return sample, errors.WithStack(err)
 		}
@@ -49,7 +49,10 @@ func (si *sampleIterator) Next() (prompb.Sample, error) {
 		data := make([]byte, size)
 
 		if _, err := io.ReadFull(si.reader, data[:]); err != nil {
-			return sample, errors.WithStack(err)
+			if err != io.EOF {
+				return sample, errors.WithStack(err)
+			}
+			return sample, io.EOF
 		}
 		if err := sample.Unmarshal(data); err != nil {
 			return sample, errors.WithStack(err)

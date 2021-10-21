@@ -14,7 +14,8 @@ import (
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
-	"github.com/yatsdb/yatsdb/aoss"
+	aoss "github.com/yatsdb/yatsdb/aoss"
+	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
@@ -117,7 +118,7 @@ func OpenTSDB(options Options) (TSDB, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	streamStore, err := aoss.OpenFileStreamStore(options.FileStreamStoreOptions)
+	streamStore, err := filestreamstore.OpenFileStreamStore(options.FileStreamStoreOptions)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}

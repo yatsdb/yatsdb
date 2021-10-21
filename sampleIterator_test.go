@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/yatsdb/yatsdb/aoss"
+	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 )
 
@@ -16,7 +16,7 @@ func Test_sampleIterator_Next(t *testing.T) {
 	t.Cleanup(func() {
 		os.RemoveAll(t.Name())
 	})
-	streamStore, err := aoss.OpenFileStreamStore(aoss.FileStreamStoreOptions{
+	streamStore, err := filestreamstore.OpenFileStreamStore(filestreamstore.FileStreamStoreOptions{
 		Dir:            t.Name(),
 		SyncWrite:      true,
 		WriteGorutines: 12,

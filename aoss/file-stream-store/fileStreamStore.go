@@ -1,4 +1,4 @@
-package aoss
+package filestreamstore
 
 import (
 	"io"
@@ -13,6 +13,8 @@ import (
 	"github.com/pkg/errors"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 )
+
+type StreamID = invertedindex.StreamID
 
 type fileStream struct {
 	sync.Mutex
