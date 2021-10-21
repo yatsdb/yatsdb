@@ -2,15 +2,19 @@ package wal
 
 import (
 	"context"
-	"errors"
 	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+
+	"github.com/pkg/errors"
 
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 )
 
 type Wal interface {
-	Write(writeStream streamstorepb.Entry, fn func(err error))
+	Write(entry streamstorepb.Entry, fn func(err error))
 	Close() error
 	ClearLogFiles(ID uint64)
 }
@@ -29,6 +33,8 @@ type Options struct {
 
 	Dir       string
 	BatchSize int
+	// TruncateLast truncate last log file when error happen
+	TruncateLast bool
 }
 
 type Syncer interface {
@@ -40,6 +46,8 @@ type LogFile interface {
 	Syncer
 	Size() int64
 	SetCloseOnSync()
+	SetFirstEntryID(ID uint64)
+	SetLastEntryID(ID uint64)
 }
 
 type EntriesSync struct {
@@ -56,6 +64,10 @@ type wal struct {
 	LogFileCh   chan LogFile
 
 	currLogFile LogFile
+
+	closedFiles []LogFile
+
+	createLogIndex int64
 }
 
 func (wal *wal) Close() error {
@@ -68,6 +80,7 @@ func (wal *wal) startSyncEntriesGoroutine() {
 	go func() {
 		var last *EntriesSync
 		for {
+			var count int
 			var entries []EntriesSync
 			if last == nil {
 				select {
@@ -80,6 +93,7 @@ func (wal *wal) startSyncEntriesGoroutine() {
 			} else {
 				entries = append(entries, *last)
 				last = nil
+				count++
 			}
 		batchLoop:
 			for {
@@ -90,11 +104,16 @@ func (wal *wal) startSyncEntriesGoroutine() {
 						break batchLoop
 					}
 					entries = append(entries, sync)
+					count += len(sync.entries)
+					if count < wal.SyncBatchSize {
+						continue
+					}
 				case <-wal.ctx.Done():
 					syncEntriesCb(entries, wal.ctx.Err())
 					return
 				default:
 				}
+				break batchLoop
 			}
 			if err := entries[len(entries)-1].syncer.Sync(); err != nil {
 				logrus.Warnf("sync file failed %s", err.Error())
@@ -120,6 +139,7 @@ func entriesCb(entries []Entry, err error) {
 
 func (wal *wal) startWriteEntryGoroutine() {
 	go func() {
+		var encoder = newEncoder(nil)
 		for {
 			var entries []Entry
 			select {
@@ -146,20 +166,20 @@ func (wal *wal) startWriteEntryGoroutine() {
 			for _, entry := range entries {
 				batch.Entries = append(batch.Entries, entry.entry)
 			}
-			data, err := batch.Marshal()
-			if err != nil {
-				logrus.Panicf("Marshal failed %+v", err)
-			}
+
 			file, err := wal.getLogFile()
 			if err != nil {
 				entriesCb(entries, err)
 				continue
 			}
-			if _, err := file.Write(data); err != nil {
+			file.SetFirstEntryID(batch.Entries[0].ID)
+			encoder.Reset(file)
+			if err := encoder.Encode(&batch); err != nil {
 				entriesCb(entries, err)
 				continue
 			}
 			if file.Size() > wal.MaxLogSize {
+				file.SetLastEntryID(batch.Entries[len(batch.Entries)-1].ID)
 				file.SetCloseOnSync()
 				wal.nextLog()
 			}
@@ -176,13 +196,21 @@ func (wal *wal) startWriteEntryGoroutine() {
 	}()
 }
 
-func (wal *wal) CreatLogFile() (LogFile, error) {
-	return nil, errors.New("not implement")
+func (wal *wal) CreateLogFile() (LogFile, error) {
+	wal.createLogIndex++
+	filename := filepath.Join(wal.Options.Dir, strconv.FormatInt(wal.createLogIndex, 10)+logExt)
+	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	return &logFile{
+		f: f,
+	}, nil
 }
 func (wal *wal) startCreatLogFileRoutine() {
 	go func() {
 		for {
-			file, err := wal.CreatLogFile()
+			file, err := wal.CreateLogFile()
 			if err != nil {
 				logrus.Panicf("CreatLogFile failed %s", err.Error())
 				continue
@@ -211,6 +239,7 @@ func (wal *wal) getLogFile() (LogFile, error) {
 		return wal.currLogFile, nil
 	}
 }
+
 func (wal *wal) Write(entry streamstorepb.Entry, fn func(err error)) {
 	select {
 	case wal.entryCh <- Entry{
