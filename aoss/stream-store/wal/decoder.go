@@ -29,12 +29,15 @@ func newDecoder(reader io.Reader) Decoder {
 func (d *decoder) Decode() (streamstorepb.EntryTyper, error) {
 	var sizeBuffer [5]byte
 	if _, err := io.ReadFull(d, sizeBuffer[:]); err != nil {
-		return nil, err
+		if err == io.EOF {
+			return nil, err
+		}
+		return nil, errors.WithStack(err)
 	}
-	var size = binary.BigEndian.Uint32(sizeBuffer[:])
+	var size = binary.BigEndian.Uint32(sizeBuffer[:4])
 	var buffer = make([]byte, size)
 	if _, err := io.ReadFull(d, buffer[:]); err != nil {
-		return nil, err
+		return nil, errors.WithStack(err)
 	}
 	entryTyper := streamstorepb.NewEntryTyper(sizeBuffer[4])
 	if err := entryTyper.Unmarshal(buffer); err != nil {

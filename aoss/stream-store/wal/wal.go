@@ -3,9 +3,11 @@ package wal
 import (
 	"context"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
+	"sync"
 
 	"github.com/pkg/errors"
 
@@ -14,45 +16,34 @@ import (
 )
 
 type Wal interface {
-	Write(entry streamstorepb.Entry, fn func(err error))
+	Write(entry streamstorepb.Entry, fn func(ID uint64, err error))
 	Close() error
 	ClearLogFiles(ID uint64)
 }
 
 type Entry struct {
 	entry streamstorepb.Entry
-	fn    func(error)
+	fn    func(uint64, error)
 }
 
 var _ Wal = (*wal)(nil)
 
-type Options struct {
-	SyncWrite     bool
-	SyncBatchSize int
-	MaxLogSize    int64
-
-	Dir       string
-	BatchSize int
-	// TruncateLast truncate last log file when error happen
-	TruncateLast bool
-}
-
-type Syncer interface {
-	Sync() error
-}
-
 type LogFile interface {
 	io.Writer
-	Syncer
+	io.Closer
+	Sync() error
 	Size() int64
-	SetCloseOnSync()
 	SetFirstEntryID(ID uint64)
 	SetLastEntryID(ID uint64)
+	GetFirstEntryID() uint64
+	GetLastEntryID() uint64
+	Rename() error
+	Filename() string
 }
 
 type EntriesSync struct {
 	entries []Entry
-	syncer  Syncer
+	lf      LogFile
 }
 
 type wal struct {
@@ -63,18 +54,35 @@ type wal struct {
 	syncEntryCh chan EntriesSync
 	LogFileCh   chan LogFile
 
-	currLogFile LogFile
+	lastLogFile LogFile
 
-	closedFiles []LogFile
+	logFiles       []LogFile
+	logFilesLocker sync.Mutex
 
-	createLogIndex int64
+	createLogIndex uint64
+	entryID        uint64
 }
 
 func (wal *wal) Close() error {
 	return nil
 }
 func (wal *wal) ClearLogFiles(ID uint64) {
-
+	wal.logFilesLocker.Lock()
+	defer wal.logFilesLocker.Unlock()
+	for i, lf := range wal.logFiles[:len(wal.logFiles)-1] {
+		if lf.GetLastEntryID() <= ID {
+			if err := lf.Close(); err != nil {
+				logrus.Panicf("close logFile failed %+v", err)
+			}
+			if err := os.Remove(lf.Filename()); err != nil {
+				logrus.Panicf("remove logFile failed %+v", err)
+			}
+		} else {
+			copy(wal.logFiles, wal.logFiles[i:])
+			wal.logFiles = wal.logFiles[:len(wal.logFiles)-i]
+			break
+		}
+	}
 }
 func (wal *wal) startSyncEntriesGoroutine() {
 	go func() {
@@ -98,13 +106,13 @@ func (wal *wal) startSyncEntriesGoroutine() {
 		batchLoop:
 			for {
 				select {
-				case sync := <-wal.syncEntryCh:
-					if sync.syncer == entries[len(entries)-1].syncer {
-						last = &sync
+				case entry := <-wal.syncEntryCh:
+					if entry.lf != entries[len(entries)-1].lf {
+						last = &entry
 						break batchLoop
 					}
-					entries = append(entries, sync)
-					count += len(sync.entries)
+					entries = append(entries, entry)
+					count += len(entry.entries)
 					if count < wal.SyncBatchSize {
 						continue
 					}
@@ -115,9 +123,15 @@ func (wal *wal) startSyncEntriesGoroutine() {
 				}
 				break batchLoop
 			}
-			if err := entries[len(entries)-1].syncer.Sync(); err != nil {
-				logrus.Warnf("sync file failed %s", err.Error())
-				syncEntriesCb(entries, err)
+			lf := entries[len(entries)-1].lf
+			if err := lf.Sync(); err != nil {
+				logrus.Panicf("sync file failed %s", err.Error())
+			}
+			syncEntriesCb(entries, nil)
+			if lf.Size() > wal.MaxLogSize {
+				if err := lf.Rename(); err != nil {
+					logrus.Panicf("rename failed %+v", err)
+				}
 			}
 		}
 	}()
@@ -126,24 +140,39 @@ func (wal *wal) startSyncEntriesGoroutine() {
 func syncEntriesCb(entriesSynces []EntriesSync, err error) {
 	for _, sync := range entriesSynces {
 		for _, entry := range sync.entries {
-			entry.fn(err)
+			if err != nil {
+				entry.fn(0, err)
+			} else {
+				entry.fn(entry.entry.ID, nil)
+			}
 		}
 	}
 }
 
 func entriesCb(entries []Entry, err error) {
 	for _, entry := range entries {
-		entry.fn(err)
+		if err != nil {
+			entry.fn(0, err)
+		}
 	}
 }
 
+func (wal *wal) nextEntryID() uint64 {
+	wal.entryID++
+	return wal.entryID
+}
 func (wal *wal) startWriteEntryGoroutine() {
 	go func() {
 		var encoder = newEncoder(nil)
+		file, err := wal.getLogFile()
+		if err != nil {
+			logrus.Panicf("get log file failed %+v", err)
+		}
 		for {
 			var entries []Entry
 			select {
 			case entry := <-wal.entryCh:
+				entry.entry.ID = wal.nextEntryID()
 				entries = append(entries, entry)
 			case <-wal.ctx.Done():
 				entriesCb(entries, wal.ctx.Err())
@@ -152,6 +181,7 @@ func (wal *wal) startWriteEntryGoroutine() {
 			for {
 				select {
 				case entry := <-wal.entryCh:
+					entry.entry.ID = wal.nextEntryID()
 					entries = append(entries, entry)
 					if len(entries) < wal.BatchSize {
 						continue
@@ -167,30 +197,33 @@ func (wal *wal) startWriteEntryGoroutine() {
 				batch.Entries = append(batch.Entries, entry.entry)
 			}
 
-			file, err := wal.getLogFile()
-			if err != nil {
-				entriesCb(entries, err)
-				continue
-			}
 			file.SetFirstEntryID(batch.Entries[0].ID)
 			encoder.Reset(file)
 			if err := encoder.Encode(&batch); err != nil {
-				entriesCb(entries, err)
+				logrus.Panicf("encode entries failed %+v", err)
 				continue
 			}
-			if file.Size() > wal.MaxLogSize {
-				file.SetLastEntryID(batch.Entries[len(batch.Entries)-1].ID)
-				file.SetCloseOnSync()
-				wal.nextLog()
-			}
+
 			select {
 			case wal.syncEntryCh <- EntriesSync{
 				entries: entries,
-				syncer:  file,
+				lf:      file,
 			}:
 			case <-wal.ctx.Done():
 				entriesCb(entries, err)
 				return
+			}
+
+			if file.Size() > wal.MaxLogSize {
+				file.SetLastEntryID(batch.Entries[len(batch.Entries)-1].ID)
+				file, err = wal.nextLog()
+				if err != nil {
+					if err == wal.ctx.Err() {
+						entriesCb(entries, err)
+						return
+					}
+					logrus.Panicf("get next log file failed %+v", err)
+				}
 			}
 		}
 	}()
@@ -198,8 +231,8 @@ func (wal *wal) startWriteEntryGoroutine() {
 
 func (wal *wal) CreateLogFile() (LogFile, error) {
 	wal.createLogIndex++
-	filename := filepath.Join(wal.Options.Dir, strconv.FormatInt(wal.createLogIndex, 10)+logExt)
-	f, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0666)
+	filename := filepath.Join(wal.Options.Dir, strconv.FormatUint(wal.createLogIndex, 10)+logExt)
+	f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
@@ -208,6 +241,7 @@ func (wal *wal) CreateLogFile() (LogFile, error) {
 	}, nil
 }
 func (wal *wal) startCreatLogFileRoutine() {
+	wal.createLogIndex = math.MaxUint64 / 2
 	go func() {
 		for {
 			file, err := wal.CreateLogFile()
@@ -223,30 +257,34 @@ func (wal *wal) startCreatLogFileRoutine() {
 		}
 	}()
 }
-func (wal *wal) nextLog() {
-	wal.currLogFile = nil
+func (wal *wal) nextLog() (LogFile, error) {
+	wal.lastLogFile = nil
+	return wal.getLogFile()
 }
 func (wal *wal) getLogFile() (LogFile, error) {
-	if wal.currLogFile != nil {
-		return wal.currLogFile, nil
+	if wal.lastLogFile != nil {
+		return wal.lastLogFile, nil
 	} else {
 		select {
 		case logFile := <-wal.LogFileCh:
-			wal.currLogFile = logFile
+			wal.lastLogFile = logFile
+			wal.logFilesLocker.Lock()
+			wal.logFiles = append(wal.logFiles, wal.lastLogFile)
+			wal.logFilesLocker.Unlock()
 		case <-wal.ctx.Done():
 			return nil, wal.ctx.Err()
 		}
-		return wal.currLogFile, nil
+		return wal.lastLogFile, nil
 	}
 }
 
-func (wal *wal) Write(entry streamstorepb.Entry, fn func(err error)) {
+func (wal *wal) Write(entry streamstorepb.Entry, fn func(entryID uint64, err error)) {
 	select {
 	case wal.entryCh <- Entry{
 		entry: entry,
 		fn:    fn,
 	}:
 	case <-wal.ctx.Done():
-		fn(wal.ctx.Err())
+		fn(0, wal.ctx.Err())
 	}
 }

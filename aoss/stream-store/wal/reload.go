@@ -1,20 +1,24 @@
 package wal
 
 import (
+	"context"
+	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 )
 
-func Reload(options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
+func Reload(Ctx context.Context, options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
 	type FileInfo struct {
 		firstID uint64
 		lastID  uint64
@@ -25,6 +29,9 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
 
 	var fileInfos []*FileInfo
 	err := filepath.Walk(options.Dir, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
 		if info.IsDir() {
 			return nil
 		}
@@ -60,7 +67,17 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
 		return fileInfos[i].Path < fileInfos[j].Path
 	})
 
-	var w wal
+	var w = wal{
+		Options:        options,
+		entryCh:        make(chan Entry, options.BatchSize),
+		ctx:            Ctx,
+		syncEntryCh:    make(chan EntriesSync, options.SyncBatchSize),
+		LogFileCh:      make(chan LogFile),
+		lastLogFile:    nil,
+		logFiles:       []LogFile{},
+		logFilesLocker: sync.Mutex{},
+		createLogIndex: math.MaxUint64 / 2,
+	}
 	var lastFileInfo *FileInfo
 	for i, fileInfo := range fileInfos {
 
@@ -68,7 +85,7 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
 		iter := newEntryIteractor(newDecoder(fileInfo.f))
 		for {
 			//last success write offset
-			offset, err := fileInfo.f.Seek(0, 0)
+			offset, err := fileInfo.f.Seek(0, 1)
 			if err != nil {
 				return nil, err
 			}
@@ -93,25 +110,19 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
 				fileInfo.firstID = entry.ID
 			}
 			fileInfo.lastID = entry.ID
+			w.entryID = entry.ID
 		}
-		//to fix logFile name error
-		if filepath.Base(fileInfo.Path) != strconv.FormatUint(fileInfo.lastID, 10)+logExt {
-			path := filepath.Join(filepath.Dir(fileInfo.Path), strconv.FormatUint(fileInfo.lastID, 10)+logExt)
-			if err := os.Rename(fileInfo.Path, path); err != nil {
-				return nil, errors.WithStack(err)
-			}
-			fileInfo.Path = path
-		}
+
 		//close files
 		if i < len(fileInfos)-1 || fileInfo.Size == options.MaxLogSize {
-			if err := fileInfo.f.Close(); err != nil {
+			lf, err := initLogFile(fileInfo.f, fileInfo.firstID, fileInfo.lastID)
+			if err != nil {
 				return nil, errors.WithStack(err)
 			}
-			w.closedFiles = append(w.closedFiles, &logFile{
-				size:         fileInfo.Size,
-				firstEntryID: fileInfo.firstID,
-				lastEntryID:  fileInfo.lastID,
-			})
+			if err := lf.Rename(); err != nil {
+				return nil, errors.WithStack(err)
+			}
+			w.logFiles = append(w.logFiles, lf)
 		} else {
 			lastFileInfo = fileInfo
 		}
@@ -120,15 +131,23 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
 	//init wal currLogFile
 	if lastFileInfo != nil {
 		var err error
-		w.currLogFile, err = initLogFile(lastFileInfo.f, lastFileInfo.firstID, lastFileInfo.lastID)
+		w.lastLogFile, err = initLogFile(lastFileInfo.f, lastFileInfo.firstID, lastFileInfo.lastID)
 		if err != nil {
 			return nil, err
 		}
+		base := filepath.Base(w.lastLogFile.Filename())
+		index, err := strconv.ParseUint(base[:len(base)-len(logExt)], 10, 64)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		w.createLogIndex = index + 1
 	}
 
 	w.startCreatLogFileRoutine()
 	w.startSyncEntriesGoroutine()
 	w.startWriteEntryGoroutine()
+
+	fmt.Println(w.entryID)
 
 	return &w, nil
 }

@@ -1,8 +1,10 @@
 package wal
 
 import (
+	"fmt"
 	"os"
-	"sync/atomic"
+	"path/filepath"
+	"strconv"
 
 	"github.com/pkg/errors"
 )
@@ -12,13 +14,14 @@ const (
 )
 
 type logFile struct {
+	filename     string
 	f            *os.File
 	size         int64
-	closeOnSync  bool
 	firstEntryID uint64
 	lastEntryID  uint64
 }
 
+var logFileFlag = os.O_CREATE | os.O_RDWR
 var _ LogFile = (*logFile)(nil)
 
 func initLogFile(f *os.File, firstEntryID uint64, lastEntryID uint64) (*logFile, error) {
@@ -31,6 +34,7 @@ func initLogFile(f *os.File, firstEntryID uint64, lastEntryID uint64) (*logFile,
 		return nil, errors.WithStack(err)
 	}
 	lf := &logFile{
+		filename:     f.Name(),
 		firstEntryID: firstEntryID,
 		lastEntryID:  lastEntryID,
 		f:            f,
@@ -42,21 +46,19 @@ func initLogFile(f *os.File, firstEntryID uint64, lastEntryID uint64) (*logFile,
 
 func (lf *logFile) Write(p []byte) (n int, err error) {
 	n, err = lf.f.Write(p)
-	atomic.AddInt64(&lf.size, int64(n))
+	fmt.Println("write bytes", n)
+	lf.size += int64(n)
 	return n, err
 }
 func (lf *logFile) Size() int64 {
 	return lf.size
 }
-func (lf *logFile) SetCloseOnSync() {
-	lf.closeOnSync = true
-}
 
 func (lf *logFile) Sync() error {
-	if lf.closeOnSync {
-		return lf.f.Close()
+	if err := lf.f.Sync(); err != nil {
+		return errors.WithStack(err)
 	}
-	return lf.f.Sync()
+	return nil
 }
 
 func (lf *logFile) SetFirstEntryID(ID uint64) {
@@ -67,4 +69,31 @@ func (lf *logFile) SetFirstEntryID(ID uint64) {
 
 func (lf *logFile) SetLastEntryID(ID uint64) {
 	lf.lastEntryID = ID
+}
+func (lf *logFile) Rename() error {
+	if filepath.Base(lf.f.Name()) != strconv.FormatUint(lf.lastEntryID, 10)+logExt {
+		path := filepath.Join(filepath.Dir(lf.f.Name()), strconv.FormatUint(lf.lastEntryID, 10)+logExt)
+		if err := os.Rename(lf.f.Name(), path); err != nil {
+			return errors.WithStack(err)
+		}
+		lf.filename = path
+	}
+	return nil
+}
+func (lf *logFile) Filename() string {
+	return lf.filename
+}
+
+func (lf *logFile) GetFirstEntryID() uint64 {
+	return lf.firstEntryID
+}
+
+func (lf *logFile) GetLastEntryID() uint64 {
+	return lf.lastEntryID
+}
+func (lf *logFile) Close() error {
+	if err := lf.f.Close(); err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }

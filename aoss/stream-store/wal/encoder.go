@@ -17,7 +17,7 @@ type encoder struct {
 	io.Writer
 }
 
-func newEncoder(writer io.Writer) Encoder {
+func newEncoder(writer io.Writer) *encoder {
 	return &encoder{
 		Writer: writer,
 	}
@@ -28,15 +28,16 @@ func (e *encoder) Reset(writer io.Writer) {
 }
 func (e *encoder) Encode(entry streamstorepb.EntryTyper) error {
 	size := entry.Size()
-	buffer := make([]byte, size+4+1)
-	binary.BigEndian.PutUint32(buffer, uint32(size))
-	buffer = buffer[4:]
-	buffer[0] = entry.Type()
-	buffer = buffer[1:]
-	if _, err := entry.MarshalTo(buffer); err != nil {
+	buf := make([]byte, size+4+1)
+	data := buf
+	binary.BigEndian.PutUint32(buf, uint32(size))
+	buf = buf[4:]
+	buf[0] = entry.Type()
+	buf = buf[1:]
+	if _, err := entry.MarshalTo(buf); err != nil {
 		return errors.WithStack(err)
 	}
-	if _, err := e.Write(buffer); err != nil {
+	if _, err := e.Write(data); err != nil {
 		return errors.WithStack(err)
 	}
 	return nil
