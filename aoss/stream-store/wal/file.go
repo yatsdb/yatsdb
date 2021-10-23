@@ -1,7 +1,6 @@
 package wal
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -46,7 +45,6 @@ func initLogFile(f *os.File, firstEntryID uint64, lastEntryID uint64) (*logFile,
 
 func (lf *logFile) Write(p []byte) (n int, err error) {
 	n, err = lf.f.Write(p)
-	fmt.Println("write bytes", n)
 	lf.size += int64(n)
 	return n, err
 }

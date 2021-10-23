@@ -1,7 +1,6 @@
 package wal
 
 import (
-	"context"
 	"os"
 	"testing"
 
@@ -15,7 +14,6 @@ func TestReload(t *testing.T) {
 	})
 	type args struct {
 		options Options
-		ctx     context.Context
 		fn      func(streamstorepb.Entry) error
 	}
 	tests := []struct {
@@ -44,7 +42,7 @@ func TestReload(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Reload(tt.args.ctx, tt.args.options, tt.args.fn)
+			got, err := Reload(tt.args.options, tt.args.fn)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Reload() error = %v, wantErr %v", err, tt.wantErr)
 				return

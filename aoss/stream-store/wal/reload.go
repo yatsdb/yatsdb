@@ -2,7 +2,6 @@ package wal
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"io/fs"
 	"math"
@@ -18,7 +17,7 @@ import (
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 )
 
-func Reload(Ctx context.Context, options Options, fn func(streamstorepb.Entry) error) (Wal, error) {
+func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 	type FileInfo struct {
 		firstID uint64
 		lastID  uint64
@@ -66,11 +65,12 @@ func Reload(Ctx context.Context, options Options, fn func(streamstorepb.Entry) e
 		}
 		return fileInfos[i].Path < fileInfos[j].Path
 	})
-
+	ctx, cancel := context.WithCancel(context.Background())
 	var w = wal{
+		ctx:            ctx,
+		cancel:         cancel,
 		Options:        options,
 		entryCh:        make(chan Entry, options.BatchSize),
-		ctx:            Ctx,
 		syncEntryCh:    make(chan EntriesSync, options.SyncBatchSize),
 		LogFileCh:      make(chan LogFile),
 		lastLogFile:    nil,
@@ -135,6 +135,8 @@ func Reload(Ctx context.Context, options Options, fn func(streamstorepb.Entry) e
 		if err != nil {
 			return nil, err
 		}
+		w.logFiles = append(w.logFiles, w.lastLogFile)
+
 		base := filepath.Base(w.lastLogFile.Filename())
 		index, err := strconv.ParseUint(base[:len(base)-len(logExt)], 10, 64)
 		if err != nil {
@@ -147,7 +149,7 @@ func Reload(Ctx context.Context, options Options, fn func(streamstorepb.Entry) e
 	w.startSyncEntriesGoroutine()
 	w.startWriteEntryGoroutine()
 
-	fmt.Println(w.entryID)
+	logrus.Infof("reload wal success last entry ID %d", w.entryID)
 
 	return &w, nil
 }

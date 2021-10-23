@@ -50,6 +50,7 @@ type wal struct {
 	Options
 	entryCh chan Entry
 	ctx     context.Context
+	cancel  context.CancelFunc
 
 	syncEntryCh chan EntriesSync
 	LogFileCh   chan LogFile
@@ -61,14 +62,19 @@ type wal struct {
 
 	createLogIndex uint64
 	entryID        uint64
+
+	wg sync.WaitGroup
 }
 
 func (wal *wal) Close() error {
+	wal.cancel()
+	wal.wg.Wait()
 	return nil
 }
 func (wal *wal) ClearLogFiles(ID uint64) {
 	wal.logFilesLocker.Lock()
 	defer wal.logFilesLocker.Unlock()
+	var index int
 	for i, lf := range wal.logFiles[:len(wal.logFiles)-1] {
 		if lf.GetLastEntryID() <= ID {
 			if err := lf.Close(); err != nil {
@@ -77,15 +83,28 @@ func (wal *wal) ClearLogFiles(ID uint64) {
 			if err := os.Remove(lf.Filename()); err != nil {
 				logrus.Panicf("remove logFile failed %+v", err)
 			}
+			logrus.WithField("i", i).
+				WithField("filename", lf.Filename()).
+				WithField("first entry id", lf.GetFirstEntryID()).
+				WithField("last entry ID", lf.GetLastEntryID()).
+				Infof("delete log success")
+			index = i + 1
 		} else {
-			copy(wal.logFiles, wal.logFiles[i:])
-			wal.logFiles = wal.logFiles[:len(wal.logFiles)-i]
+			logrus.WithField("i", i).
+				WithField("filename", lf.Filename()).
+				WithField("first entry id", lf.GetFirstEntryID()).
+				WithField("last entry ID", lf.GetLastEntryID()).
+				Infof("skip delete")
 			break
 		}
 	}
+	copy(wal.logFiles, wal.logFiles[index:])
+	wal.logFiles = wal.logFiles[:len(wal.logFiles)-index]
 }
 func (wal *wal) startSyncEntriesGoroutine() {
+	wal.wg.Add(1)
 	go func() {
+		defer wal.wg.Done()
 		var last *EntriesSync
 		for {
 			var count int
@@ -162,7 +181,9 @@ func (wal *wal) nextEntryID() uint64 {
 	return wal.entryID
 }
 func (wal *wal) startWriteEntryGoroutine() {
+	wal.wg.Add(1)
 	go func() {
+		defer wal.wg.Done()
 		var encoder = newEncoder(nil)
 		file, err := wal.getLogFile()
 		if err != nil {
@@ -241,8 +262,10 @@ func (wal *wal) CreateLogFile() (LogFile, error) {
 	}, nil
 }
 func (wal *wal) startCreatLogFileRoutine() {
+	wal.wg.Add(1)
 	wal.createLogIndex = math.MaxUint64 / 2
 	go func() {
+		defer wal.wg.Done()
 		for {
 			file, err := wal.CreateLogFile()
 			if err != nil {
