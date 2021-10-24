@@ -25,6 +25,8 @@ func (blocks *Blocks) Write(data []byte) {
 }
 
 type MTable interface {
+	GetStreamOffset
+
 	firstEntryID() uint64
 	lastEntryID() uint64
 

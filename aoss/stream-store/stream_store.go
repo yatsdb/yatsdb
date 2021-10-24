@@ -2,6 +2,7 @@ package streamstore
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,6 +41,9 @@ type StreamStore struct {
 	callbackCh chan func()
 
 	flushTableCh chan MTable
+
+	segmentLocker sync.RWMutex
+	segments      []Segment
 }
 
 type AppendCallbackFn = func(offset int64, err error)
@@ -121,7 +125,7 @@ func (ss *StreamStore) openSegment(filename string) (Segment, error) {
 	return newSegment(f), nil
 }
 
-func (ss *StreamStore) updateSegmentIndex(segment Segment)`` {
+func (ss *StreamStore) updateSegmentIndex(segment Segment) {
 
 }
 func (ss *StreamStore) startFlushMTableRoutine() {
@@ -179,4 +183,26 @@ func (ss *StreamStore) startWriteEntryRoutine() {
 			}
 		}
 	}()
+}
+
+func (ss *StreamStore) findStreamBlockReader(streamID StreamID, offset int64) (streamBlockReader, error) {
+	ss.segmentLocker.RLock()
+	i := SearchSegments(ss.segments, streamID, offset)
+	if i != -1 {
+		segment := ss.segments[i]
+		ss.segmentLocker.RUnlock()
+		return newSegmentBlockReader(streamID, segment), nil
+	}
+	ss.segmentLocker.RUnlock()
+
+	mTables := *(*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
+	i = SearchMTables(mTables, streamID, offset)
+	if i != -1 {
+		return newMtableBlockReader(streamID, mTables[i]), nil
+	}
+	return nil, io.EOF
+}
+
+func (ss *StreamStore) NewStreamReader() (StreamReader, error) {
+	panic("not implement")
 }
