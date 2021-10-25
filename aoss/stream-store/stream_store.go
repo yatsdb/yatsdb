@@ -21,8 +21,8 @@ import (
 )
 
 var (
-	ErrOutRangeOffsetBegin = errors.New("out of offset range begin")
-	ErrOutRangeOffsetEnd   = errors.New("out of offset range end")
+	ErrOutOfOffsetRangeBegin = errors.New("out of offset range begin")
+	ErrOutOfOffsetRangeEnd   = errors.New("out of offset range end")
 )
 
 type StreamID = invertedindex.StreamID
@@ -90,7 +90,10 @@ func Open(options Options) (*StreamStore, error) {
 			if err != nil {
 				return errors.WithStack(err)
 			}
-			segment := newSegment(f)
+			segment, err := newSegment(f)
+			if err != nil {
+				logrus.Panicf("newSegment %s failed %+v", path, err)
+			}
 			ss.segments = append(ss.segments, segment)
 		}
 		return nil
@@ -190,17 +193,21 @@ func (ss *StreamStore) flushMTable(mtable MTable) string {
 	tempfile := filepath.Join(ss.Options.SegmentDir, strconv.FormatUint(mtable.firstEntryID(), 10)+segmentTempExt)
 	f, err := os.Create(tempfile)
 	if err != nil {
-		logrus.Panicf("create file failed %s", err.Error())
+		logrus.WithError(err).Panicf("create file failed")
 	}
-	if _, err := mtable.WriteTo(f); err != nil {
-		logrus.Panicf("write mtable to file %s failed %+v", tempfile, err)
+	if err := mtable.writeSegment(f); err != nil {
+		logrus.WithField("filename", tempfile).WithError(err).Panicf("write segment failed")
 	}
-
+	if err := f.Close(); err != nil {
+		logrus.WithField("filename", tempfile).WithError(err).Panicf("close segment failed")
+	}
 	filename := filepath.Join(ss.Options.SegmentDir, strconv.FormatUint(mtable.firstEntryID(), 10)+segmentExt)
 	if err := os.Rename(tempfile, filename); err != nil {
-		logrus.Panicf("remove %s to %s failed %s", tempfile, filename, err.Error())
+		logrus.WithField("from", tempfile).WithField("to", filename).WithError(err).Panicf("rename failed")
 	}
-	logrus.Infof("flush mtable to %s success toke times %s", filename, time.Since(begin))
+	logrus.WithField("filename", filename).
+		WithField("elapsed", time.Since(begin)).
+		Infof("flush MTable to segment success")
 	return filename
 }
 
@@ -209,7 +216,7 @@ func (ss *StreamStore) openSegment(filename string) (Segment, error) {
 	if err != nil {
 		return nil, errors.Errorf("open file %s failed %s", filename, err.Error())
 	}
-	return newSegment(f), nil
+	return newSegment(f)
 }
 
 func (ss *StreamStore) updateSegments(segment Segment) {
@@ -230,6 +237,7 @@ func (ss *StreamStore) startFlushMTableRoutine() {
 		for {
 			select {
 			case mtable := <-ss.flushTableCh:
+				mtable.setUnmutable()
 				filename := ss.flushMTable(mtable)
 				segment, err := ss.openSegment(filename)
 				if err != nil {
@@ -257,6 +265,7 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 		return offset
 	}
 	unmutTable := ss.mtable
+	unmutTable.setUnmutable()
 	ss.mtable = newMTable(ss.omap)
 
 	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
@@ -288,14 +297,14 @@ func (ss *StreamStore) findStreamBlockReader(streamID StreamID, offset int64) (s
 	if i != -1 {
 		segment := ss.segments[i]
 		ss.segmentLocker.RUnlock()
-		return newSegmentBlockReader(streamID, segment), nil
+		return segment.newStreamBlockReader(streamID)
 	}
 	ss.segmentLocker.RUnlock()
 
 	mTables := *(*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
 	i = SearchMTables(mTables, streamID, offset)
 	if i != -1 {
-		return newMtableBlockReader(streamID, mTables[i]), nil
+		return mTables[i].newStreamBlockReader(streamID)
 	}
 	return nil, io.EOF
 }

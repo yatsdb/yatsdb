@@ -1,30 +1,73 @@
 package streamstore
 
+import (
+	"io"
+	"os"
+
+	"github.com/pkg/errors"
+	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
+)
+
 var _ streamBlockReader = (*segmentBlockReader)(nil)
 
 type segmentBlockReader struct {
-	segment  Segment
-	streamID StreamID
-}
-
-func newSegmentBlockReader(streamID StreamID, segment Segment) *segmentBlockReader {
-	return &segmentBlockReader{
-		segment:  segment,
-		streamID: streamID,
-	}
+	soffset streamstorepb.StreamOffset
+	f       *os.File
+	offset  int64
 }
 
 func (reader *segmentBlockReader) Close() error {
-	panic("not implement")
+	if err := reader.f.Close(); err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }
 func (reader *segmentBlockReader) Offset() (begin int64, end int64) {
-	panic("not implement")
+	return reader.soffset.From, reader.soffset.To
 }
 
 func (reader *segmentBlockReader) Seek(offset int64, whence int) (int64, error) {
-	panic("not implement")
+	newOffset := offset
+	if whence == io.SeekStart {
+
+	} else if whence == io.SeekCurrent {
+		newOffset = reader.offset + offset
+	} else if whence == io.SeekEnd {
+		return 0, errors.New("segment block reader no support Seek from end of stream")
+	} else {
+		return 0, errors.New("`Seek` argument error")
+	}
+
+	if newOffset < reader.soffset.From {
+		return 0, errors.WithStack(ErrOutOfOffsetRangeBegin)
+	} else if newOffset > reader.soffset.To {
+		return 0, errors.WithStack(ErrOutOfOffsetRangeEnd)
+	}
+
+	reader.offset = newOffset
+	return newOffset, nil
 }
 
 func (reader *segmentBlockReader) Read(p []byte) (n int, err error) {
-	panic("not implement")
+	if reader.offset > reader.soffset.To {
+		return 0, errors.WithStack(ErrOutOfOffsetRangeEnd)
+	}
+	if reader.offset < reader.soffset.From {
+		return 0, errors.WithStack(ErrOutOfOffsetRangeBegin)
+	}
+	if reader.offset == reader.soffset.To {
+		return 0, io.EOF
+	}
+	remain := reader.soffset.To - reader.offset
+	if int(remain) > len(p) {
+		p = p[:remain]
+	}
+	n, err = reader.f.Read(p)
+	if err != nil {
+		if err == io.EOF {
+			return
+		}
+		return 0, errors.WithStack(err)
+	}
+	return
 }

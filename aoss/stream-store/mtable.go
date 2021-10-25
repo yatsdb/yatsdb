@@ -1,8 +1,13 @@
 package streamstore
 
 import (
+	"encoding/binary"
 	"io"
+	"os"
+	"sync"
+	"time"
 
+	"github.com/pkg/errors"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 )
 
@@ -16,11 +21,13 @@ type MTable interface {
 	//table size
 	Size() int
 	//flush to segment
-	io.WriterTo
+	writeSegment(f *os.File) error
 	//read stream from mtables
 	ReadAt(streamID StreamID, data []byte, offset int64) (n int, err error)
 
 	setUnmutable()
+
+	newStreamBlockReader(streamID StreamID) (streamBlockReader, error)
 }
 
 type block struct {
@@ -30,12 +37,14 @@ type block struct {
 }
 
 type Blocks struct {
+	disableRWLocker
 	StreamOffset
+	mtx    sync.RWMutex
 	blocks []*block
 }
 
 type mtable struct {
-	mutable   bool
+	disableRWLocker
 	size      int
 	omap      OffsetMap
 	fID       uint64
@@ -45,7 +54,19 @@ type mtable struct {
 
 var blockSize = 4 * 1024
 
+func (b *Blocks) WriteTo(w io.Writer) (n int, err error) {
+	b.RLock()
+	for _, block := range b.blocks {
+		if r, err := w.Write(block.buf[:block.offset]); err != nil {
+			return 0, errors.WithStack(err)
+		} else {
+			n += r
+		}
+	}
+	b.RUnlock()
+}
 func (b *Blocks) Write(data []byte) int64 {
+	b.Lock()
 	if b.blocks == nil {
 		b.blocks = append(b.blocks, &block{
 			begin: b.From,
@@ -66,22 +87,26 @@ func (b *Blocks) Write(data []byte) int64 {
 		b.To += int64(n)
 		last.offset += n
 	}
+	b.Unlock()
 	return b.To
 }
 
 func (b *Blocks) ReadAt(p []byte, offset int64) (n int, err error) {
 	if offset < b.From {
-		return 0, ErrOutRangeOffsetBegin
+		return 0, ErrOutOfOffsetRangeBegin
 	}
+	b.RLock()
 	realOffset := b.From - offset
 	index := realOffset / int64(blockSize)
 	bOffset := realOffset % int64(blockSize)
 	if index >= int64(len(b.blocks)) {
-		return 0, ErrOutRangeOffsetEnd
+		b.RUnlock()
+		return 0, ErrOutOfOffsetRangeEnd
 	}
 	block := b.blocks[index]
 	if block.offset < int(bOffset) && index == int64(len(b.blocks)-1) {
-		return 0, ErrOutRangeOffsetEnd
+		b.RUnlock()
+		return 0, ErrOutOfOffsetRangeEnd
 	}
 	for i := index; i < int64(len(b.blocks)); i++ {
 		block := b.blocks[i]
@@ -94,6 +119,7 @@ func (b *Blocks) ReadAt(p []byte, offset int64) (n int, err error) {
 			break
 		}
 	}
+	b.RUnlock()
 	if n == 0 {
 		return 0, io.EOF
 	}
@@ -125,6 +151,7 @@ func (m *mtable) lastEntryID() uint64 {
 }
 
 func (m *mtable) Write(entry streamstorepb.Entry) (offset int64) {
+	m.Lock()
 	blocks, ok := m.blocksMap[entry.StreamId]
 	if !ok {
 		offset, _ := m.omap.get(entry.StreamId)
@@ -136,6 +163,7 @@ func (m *mtable) Write(entry streamstorepb.Entry) (offset int64) {
 		}
 		m.blocksMap[entry.StreamId] = blocks
 	}
+	m.Unlock()
 	return blocks.Write(entry.Data)
 }
 
@@ -145,18 +173,106 @@ func (m *mtable) Size() int {
 }
 
 func (m *mtable) setUnmutable() {
-	m.mutable = false
+	m.setDisable()
+	for _, blocks := range m.blocksMap {
+		blocks.setDisable()
+	}
 }
 
-func (m *mtable) WriteTo(w io.Writer) (n int64, err error) {
-	panic("not implement")
+func (m *mtable) writeSegment(f *os.File) error {
+	if _, err := f.Write(make([]byte, 4)); err != nil {
+		return errors.WithStack(err)
+	}
+	var offset int64
+	offset = 4
+	var footer = streamstorepb.SegmentFooter{
+		CreateTS:      time.Now().UnixNano(),
+		StreamOffsets: map[uint64]streamstorepb.StreamOffset{},
+		FirstEntryId:  m.fID,
+		LastEntryId:   m.lID,
+	}
+	for streamID, blocks := range m.blocksMap {
+		footer.StreamOffsets[uint64(streamID)] = streamstorepb.StreamOffset{
+			StreamId: streamID,
+			From:     blocks.From,
+			To:       blocks.To,
+			Offset:   offset,
+		}
+		n, err := blocks.WriteTo(f)
+		if err != nil {
+			return err
+		}
+		offset += int64(n)
+	}
+	data, err := footer.Marshal()
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	if _, err := f.Write(data); err != nil {
+		return errors.WithStack(err)
+	}
+	var header = make([]byte, 4)
+	binary.BigEndian.PutUint32(header, uint32(offset))
+	if _, err := f.WriteAt(header, 0); err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }
 
 //read stream from mtables
 func (m *mtable) ReadAt(streamID StreamID, data []byte, offset int64) (n int, err error) {
+	m.RLock()
 	blocks, ok := m.blocksMap[streamID]
 	if !ok {
+		m.RUnlock()
 		return 0, io.EOF
 	}
+	m.RUnlock()
 	return blocks.ReadAt(data, offset)
+}
+
+func (m *mtable) newStreamBlockReader(streamID StreamID) (streamBlockReader, error) {
+	m.RLock()
+	bs, ok := m.blocksMap[streamID]
+	if !ok {
+		m.RUnlock()
+		return nil, errors.New("no find stream blocks")
+	}
+	m.RUnlock()
+	return &mtableBlockReader{
+		blocks: bs,
+		offset: bs.From,
+	}, nil
+}
+
+type disableRWLocker struct {
+	mtx     sync.RWMutex
+	disable bool
+}
+
+func (m *disableRWLocker) RLock() {
+	if !m.disable {
+		m.mtx.RLock()
+	}
+}
+
+func (m *disableRWLocker) RUnlock() {
+	if !m.disable {
+		m.mtx.RUnlock()
+	}
+}
+func (m *disableRWLocker) Lock() {
+	if !m.disable {
+		m.mtx.Lock()
+	}
+}
+func (m *disableRWLocker) Unlock() {
+	if !m.disable {
+		m.mtx.Unlock()
+	}
+}
+func (m *disableRWLocker) setDisable() {
+	m.mtx.Lock()
+	m.disable = true
+	m.mtx.Unlock()
 }

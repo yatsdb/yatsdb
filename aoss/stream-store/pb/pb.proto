@@ -17,14 +17,20 @@ message EntryBatch{
     repeated Entry entries = 1 [(gogoproto.nullable) = false];
 }
 
+//StreamOffset stream offset range [from,to)
 message StreamOffset {
     uint64 stream_id = 1 [(gogoproto.customtype) = "StreamID" ,(gogoproto.nullable) = false];
+    //from stream offset begin in this segment file
     int64 from = 2;
+    //to stream offset end in this segment file,excluded 
     int64 to = 3;
+    //offset absolute offset in segment file
     int64 offset = 4;
 }
 
-message SegmentHead {
+message SegmentFooter {
     int64 CreateTS  =1;
     map<uint64,StreamOffset> streamOffsets  =2[(gogoproto.nullable) = false];
+    uint64 first_entry_id = 3;
+    uint64 last_entry_id = 4;
 }

@@ -12,7 +12,8 @@ type StreamReader interface {
 
 type streamBlockReader interface {
 	io.ReadSeekCloser
-	Offset() (begin int64, end int64)
+	//Offset return stream offset[from,to)
+	Offset() (from int64, to int64)
 }
 
 type streamReader struct {
