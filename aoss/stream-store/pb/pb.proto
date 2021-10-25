@@ -16,3 +16,15 @@ message Entry{
 message EntryBatch{
     repeated Entry entries = 1 [(gogoproto.nullable) = false];
 }
+
+message StreamOffset {
+    uint64 stream_id = 1 [(gogoproto.customtype) = "StreamID" ,(gogoproto.nullable) = false];
+    int64 from = 2;
+    int64 to = 3;
+    int64 offset = 4;
+}
+
+message SegmentHead {
+    int64 CreateTS  =1;
+    map<uint64,StreamOffset> streamOffsets  =2[(gogoproto.nullable) = false];
+}

@@ -3,9 +3,11 @@ package streamstore
 import (
 	"context"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +18,11 @@ import (
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 	"github.com/yatsdb/yatsdb/aoss/stream-store/wal"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
+)
+
+var (
+	ErrOutRangeOffsetBegin = errors.New("out of offset range begin")
+	ErrOutRangeOffsetEnd   = errors.New("out of offset range end")
 )
 
 type StreamID = invertedindex.StreamID
@@ -47,6 +54,86 @@ type StreamStore struct {
 }
 
 type AppendCallbackFn = func(offset int64, err error)
+
+func Open(options Options) (*StreamStore, error) {
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var ss = &StreamStore{
+		Options:       options,
+		ctx:           ctx,
+		cancel:        cancel,
+		appendEntryCh: make(chan appendEntry, 1024),
+		mtableMtx:     sync.Mutex{},
+		mtable:        nil,
+		omap:          newOffsetMap(),
+		mTables:       &[]MTable{},
+		callbackCh:    make(chan func()),
+		flushTableCh:  make(chan MTable),
+		segmentLocker: sync.RWMutex{},
+		segments:      []Segment{},
+	}
+	filepath.Walk(options.SegmentDir, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, segmentTempExt) {
+			if err := os.Remove(path); err != nil {
+				return errors.WithStack(err)
+			}
+			logrus.Infof("delete segment temp file %s", path)
+			return nil
+		} else if strings.HasSuffix(path, segmentExt) {
+			f, err := os.Open(path)
+			if err != nil {
+				return errors.WithStack(err)
+			}
+			segment := newSegment(f)
+			ss.segments = append(ss.segments, segment)
+		}
+		return nil
+	})
+
+	var lastEntryID uint64
+	for _, segment := range ss.segments {
+		for _, soffset := range segment.GetStreamOffsets() {
+			ss.omap.set(soffset.StreamID, soffset.To)
+		}
+		lastEntryID = segment.LastEntryID()
+	}
+
+	ss.mtable = newMTable(ss.omap)
+
+	ss.startWriteEntryRoutine()
+	ss.startFlushMTableRoutine()
+	ss.startCallbackRoutine()
+
+	var wg sync.WaitGroup
+	var reloadCount int64
+	var begin = time.Now()
+	wal.Reload(options.WalOptions, func(e streamstorepb.Entry) error {
+		if e.ID <= lastEntryID {
+			return nil
+		}
+		wg.Add(1)
+		reloadCount++
+		ss.appendEntryCh <- appendEntry{
+			entry: e,
+			fn: func(offset int64, err error) {
+				wg.Done()
+				if err != nil {
+					logrus.Panicf("append entry failed %+v", err)
+				}
+			},
+		}
+		return nil
+	})
+	wg.Wait()
+	logrus.Infof("reload wal success count %d take time %s", reloadCount, time.Since(begin))
+	return ss, nil
+}
 
 func (ss *StreamStore) Append(streamID StreamID, data []byte, fn AppendCallbackFn) {
 	ss.wal.Write(streamstorepb.Entry{
@@ -125,7 +212,17 @@ func (ss *StreamStore) openSegment(filename string) (Segment, error) {
 	return newSegment(f), nil
 }
 
-func (ss *StreamStore) updateSegmentIndex(segment Segment) {
+func (ss *StreamStore) updateSegments(segment Segment) {
+	ss.segmentLocker.Lock()
+	ss.segments = append(ss.segments, segment)
+	ss.segmentLocker.Unlock()
+
+	//remove mtable reduce memory using
+	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
+	if len(*mTables) > ss.MaxMemTableSize {
+		newTables := append(append([]MTable{}, (*mTables)[1:]...), ss.mtable)
+		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&newTables))
+	}
 
 }
 func (ss *StreamStore) startFlushMTableRoutine() {
@@ -138,7 +235,7 @@ func (ss *StreamStore) startFlushMTableRoutine() {
 				if err != nil {
 					logrus.Panicf("open segment failed %+v", err)
 				}
-				ss.updateSegmentIndex(segment)
+				ss.updateSegments(segment)
 			case <-ss.ctx.Done():
 				return
 			}
@@ -203,6 +300,16 @@ func (ss *StreamStore) findStreamBlockReader(streamID StreamID, offset int64) (s
 	return nil, io.EOF
 }
 
-func (ss *StreamStore) NewStreamReader() (StreamReader, error) {
-	panic("not implement")
+func (ss *StreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser, error) {
+	blockReader, err := ss.findStreamBlockReader(streamID, 0)
+	if err != nil {
+		return nil, err
+	}
+	offset, _ := blockReader.Offset()
+	return &streamReader{
+		streamID:    streamID,
+		store:       ss,
+		blockReader: blockReader,
+		offset:      offset,
+	}, nil
 }

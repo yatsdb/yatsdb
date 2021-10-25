@@ -16,14 +16,18 @@ type streamBlockReader interface {
 }
 
 type streamReader struct {
-	streamID StreamID
-	store    *StreamStore
-
-	currReader streamBlockReader
-
-	offset int64
+	store       *StreamStore
+	streamID    StreamID
+	offset      int64
+	blockReader streamBlockReader
 }
 
+func (reader *streamReader) Close() error {
+	if reader.blockReader != nil {
+		return reader.blockReader.Close()
+	}
+	return nil
+}
 func (reader *streamReader) Seek(offset int64, whence int) (int64, error) {
 	if whence == io.SeekCurrent {
 		reader.offset += offset
@@ -31,7 +35,7 @@ func (reader *streamReader) Seek(offset int64, whence int) (int64, error) {
 		reader.offset = offset
 	} else {
 		endOffset, ok := reader.store.omap.get(reader.streamID)
-		if !ok {
+		if ok {
 			logrus.Panic("omap no find stream offset")
 		}
 		reader.offset = endOffset
@@ -40,25 +44,21 @@ func (reader *streamReader) Seek(offset int64, whence int) (int64, error) {
 	return reader.offset, nil
 }
 
-func (reader *streamReader) findStreamReader() (streamBlockReader, error) {
-	var err error
-	reader.currReader, err = reader.store.findStreamBlockReader(reader.streamID, reader.offset)
-	if err != nil {
-		return nil, err
-	}
-	return reader.currReader, err
-}
-
 func (reader *streamReader) Read(p []byte) (n int, err error) {
-	if reader.currReader != nil {
-		if begin, end := reader.currReader.Offset(); reader.offset >= end || reader.offset < begin {
-			reader.currReader, err = reader.findStreamReader()
-			if err != nil {
-				return 0, err
-			}
+	begin, end := reader.blockReader.Offset()
+	if reader.offset < begin || reader.offset >= end {
+		if err := reader.blockReader.Close(); err != nil {
+			logrus.Warnf("close reader failed %+v", err)
+		}
+		reader.blockReader, err = reader.store.findStreamBlockReader(reader.streamID, reader.offset)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := reader.blockReader.Seek(reader.offset, 0); err != nil {
+			return 0, err
 		}
 	}
-	n, err = reader.currReader.Read(p)
+	n, err = reader.blockReader.Read(p)
 	if err != nil {
 		return n, err
 	}

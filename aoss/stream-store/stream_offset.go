@@ -2,16 +2,23 @@ package streamstore
 
 type GetStreamOffset interface {
 	//return stream range [from ,to)
-	Offset(streamID StreamID) (from int64, to int64, ok bool)
+	Offset(streamID StreamID) (StreamOffset, bool)
+}
+
+//StreamOffset
+type StreamOffset struct {
+	StreamID StreamID
+	From     int64
+	To       int64
 }
 
 func SearchSegments(segment []Segment, streamID StreamID, offset int64) int {
 	for i := 0; i < len(segment); i++ {
-		_, end, ok := segment[i].Offset(streamID)
+		soffset, ok := segment[i].Offset(streamID)
 		if !ok {
 			continue
 		}
-		if offset < end {
+		if offset < soffset.To {
 			return i
 		}
 	}
@@ -20,11 +27,11 @@ func SearchSegments(segment []Segment, streamID StreamID, offset int64) int {
 
 func SearchMTables(mtables []MTable, streamID StreamID, offset int64) int {
 	for i := 0; i < len(mtables); i++ {
-		_, end, ok := mtables[i].Offset(streamID)
+		soffset, ok := mtables[i].Offset(streamID)
 		if !ok {
 			continue
 		}
-		if offset < end {
+		if offset < soffset.To {
 			return i
 		}
 	}
