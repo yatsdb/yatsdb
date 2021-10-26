@@ -6,21 +6,21 @@ import (
 	"github.com/pkg/errors"
 )
 
-var _ streamBlockReader = (*mtableBlockReader)(nil)
+var _ SectionReader = (*mtableReader)(nil)
 
-type mtableBlockReader struct {
-	blocks *Blocks
+type mtableReader struct {
+	chunks *Chunks
 	offset int64
 }
 
-func (reader *mtableBlockReader) Close() error {
+func (reader *mtableReader) Close() error {
 	return nil
 }
-func (reader *mtableBlockReader) Offset() (begin int64, end int64) {
-	return reader.blocks.From, reader.blocks.To
+func (reader *mtableReader) Offset() (begin int64, end int64) {
+	return reader.chunks.From, reader.chunks.To
 }
 
-func (reader *mtableBlockReader) Seek(offset int64, whence int) (int64, error) {
+func (reader *mtableReader) Seek(offset int64, whence int) (int64, error) {
 	newOffset := offset
 	if whence == io.SeekStart {
 	} else if whence == io.SeekCurrent {
@@ -31,9 +31,9 @@ func (reader *mtableBlockReader) Seek(offset int64, whence int) (int64, error) {
 		return 0, errors.New("`Seek` argument error")
 	}
 
-	if newOffset < reader.blocks.From {
+	if newOffset < reader.chunks.From {
 		return 0, errors.WithStack(ErrOutOfOffsetRangeBegin)
-	} else if newOffset > reader.blocks.To {
+	} else if newOffset > reader.chunks.To {
 		return 0, errors.WithStack(ErrOutOfOffsetRangeEnd)
 	}
 
@@ -41,8 +41,8 @@ func (reader *mtableBlockReader) Seek(offset int64, whence int) (int64, error) {
 	return newOffset, nil
 }
 
-func (reader *mtableBlockReader) Read(p []byte) (n int, err error) {
-	n, err = reader.blocks.ReadAt(p, reader.offset)
+func (reader *mtableReader) Read(p []byte) (n int, err error) {
+	n, err = reader.chunks.ReadAt(p, reader.offset)
 	if err != nil {
 		if err == io.EOF {
 			return

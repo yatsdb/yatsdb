@@ -27,20 +27,19 @@ type MTable interface {
 
 	setUnmutable()
 
-	newStreamBlockReader(streamID StreamID) (streamBlockReader, error)
+	newStreamBlockReader(streamID StreamID) (SectionReader, error)
 }
 
-type block struct {
+type chunk struct {
 	begin  int64
 	offset int
 	buf    []byte
 }
 
-type Blocks struct {
+type Chunks struct {
 	disableRWLocker
 	StreamOffset
-	mtx    sync.RWMutex
-	blocks []*block
+	chunks []*chunk
 }
 
 type mtable struct {
@@ -49,34 +48,35 @@ type mtable struct {
 	omap      OffsetMap
 	fID       uint64
 	lID       uint64
-	blocksMap map[StreamID]*Blocks
+	chunksMap map[StreamID]*Chunks
 }
 
 var blockSize = 4 * 1024
 
-func (b *Blocks) WriteTo(w io.Writer) (n int, err error) {
+func (b *Chunks) WriteTo(w io.Writer) (n int64, err error) {
 	b.RLock()
-	for _, block := range b.blocks {
+	for _, block := range b.chunks {
 		if r, err := w.Write(block.buf[:block.offset]); err != nil {
 			return 0, errors.WithStack(err)
 		} else {
-			n += r
+			n += int64(r)
 		}
 	}
 	b.RUnlock()
+	return
 }
-func (b *Blocks) Write(data []byte) int64 {
+func (b *Chunks) Write(data []byte) int64 {
 	b.Lock()
-	if b.blocks == nil {
-		b.blocks = append(b.blocks, &block{
+	if b.chunks == nil {
+		b.chunks = append(b.chunks, &chunk{
 			begin: b.From,
 			buf:   make([]byte, 4*1024),
 		})
 	}
 	for len(data) > 0 {
-		last := b.blocks[len(b.blocks)-1]
+		last := b.chunks[len(b.chunks)-1]
 		if len(last.buf) == int(last.offset) {
-			b.blocks = append(b.blocks, &block{
+			b.chunks = append(b.chunks, &chunk{
 				begin: b.To,
 				buf:   make([]byte, 4*1024),
 			})
@@ -91,7 +91,7 @@ func (b *Blocks) Write(data []byte) int64 {
 	return b.To
 }
 
-func (b *Blocks) ReadAt(p []byte, offset int64) (n int, err error) {
+func (b *Chunks) ReadAt(p []byte, offset int64) (n int, err error) {
 	if offset < b.From {
 		return 0, ErrOutOfOffsetRangeBegin
 	}
@@ -99,17 +99,17 @@ func (b *Blocks) ReadAt(p []byte, offset int64) (n int, err error) {
 	realOffset := b.From - offset
 	index := realOffset / int64(blockSize)
 	bOffset := realOffset % int64(blockSize)
-	if index >= int64(len(b.blocks)) {
+	if index >= int64(len(b.chunks)) {
 		b.RUnlock()
 		return 0, ErrOutOfOffsetRangeEnd
 	}
-	block := b.blocks[index]
-	if block.offset < int(bOffset) && index == int64(len(b.blocks)-1) {
+	block := b.chunks[index]
+	if block.offset < int(bOffset) && index == int64(len(b.chunks)-1) {
 		b.RUnlock()
 		return 0, ErrOutOfOffsetRangeEnd
 	}
-	for i := index; i < int64(len(b.blocks)); i++ {
-		block := b.blocks[i]
+	for i := index; i < int64(len(b.chunks)); i++ {
+		block := b.chunks[i]
 		bytes := copy(p, block.buf[bOffset:block.offset])
 		p = p[bytes:]
 		n += bytes
@@ -136,7 +136,7 @@ func newMTable(omap OffsetMap) MTable {
 
 //return stream range [from ,to)
 func (m *mtable) Offset(streamID StreamID) (StreamOffset, bool) {
-	if blocks, ok := m.blocksMap[streamID]; ok {
+	if blocks, ok := m.chunksMap[streamID]; ok {
 		return blocks.StreamOffset, true
 	}
 	return StreamOffset{}, false
@@ -152,16 +152,16 @@ func (m *mtable) lastEntryID() uint64 {
 
 func (m *mtable) Write(entry streamstorepb.Entry) (offset int64) {
 	m.Lock()
-	blocks, ok := m.blocksMap[entry.StreamId]
+	blocks, ok := m.chunksMap[entry.StreamId]
 	if !ok {
 		offset, _ := m.omap.get(entry.StreamId)
-		blocks = &Blocks{
+		blocks = &Chunks{
 			StreamOffset: StreamOffset{
 				StreamID: entry.StreamId,
 				From:     offset,
 			},
 		}
-		m.blocksMap[entry.StreamId] = blocks
+		m.chunksMap[entry.StreamId] = blocks
 	}
 	m.Unlock()
 	return blocks.Write(entry.Data)
@@ -174,7 +174,7 @@ func (m *mtable) Size() int {
 
 func (m *mtable) setUnmutable() {
 	m.setDisable()
-	for _, blocks := range m.blocksMap {
+	for _, blocks := range m.chunksMap {
 		blocks.setDisable()
 	}
 }
@@ -191,7 +191,7 @@ func (m *mtable) writeSegment(f *os.File) error {
 		FirstEntryId:  m.fID,
 		LastEntryId:   m.lID,
 	}
-	for streamID, blocks := range m.blocksMap {
+	for streamID, blocks := range m.chunksMap {
 		footer.StreamOffsets[uint64(streamID)] = streamstorepb.StreamOffset{
 			StreamId: streamID,
 			From:     blocks.From,
@@ -222,7 +222,7 @@ func (m *mtable) writeSegment(f *os.File) error {
 //read stream from mtables
 func (m *mtable) ReadAt(streamID StreamID, data []byte, offset int64) (n int, err error) {
 	m.RLock()
-	blocks, ok := m.blocksMap[streamID]
+	blocks, ok := m.chunksMap[streamID]
 	if !ok {
 		m.RUnlock()
 		return 0, io.EOF
@@ -231,16 +231,16 @@ func (m *mtable) ReadAt(streamID StreamID, data []byte, offset int64) (n int, er
 	return blocks.ReadAt(data, offset)
 }
 
-func (m *mtable) newStreamBlockReader(streamID StreamID) (streamBlockReader, error) {
+func (m *mtable) newStreamBlockReader(streamID StreamID) (SectionReader, error) {
 	m.RLock()
-	bs, ok := m.blocksMap[streamID]
+	bs, ok := m.chunksMap[streamID]
 	if !ok {
 		m.RUnlock()
 		return nil, errors.New("no find stream blocks")
 	}
 	m.RUnlock()
-	return &mtableBlockReader{
-		blocks: bs,
+	return &mtableReader{
+		chunks: bs,
 		offset: bs.From,
 	}, nil
 }

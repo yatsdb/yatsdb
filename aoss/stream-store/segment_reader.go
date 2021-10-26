@@ -8,25 +8,25 @@ import (
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 )
 
-var _ streamBlockReader = (*segmentBlockReader)(nil)
+var _ SectionReader = (*segmentReader)(nil)
 
-type segmentBlockReader struct {
+type segmentReader struct {
 	soffset streamstorepb.StreamOffset
 	f       *os.File
 	offset  int64
 }
 
-func (reader *segmentBlockReader) Close() error {
+func (reader *segmentReader) Close() error {
 	if err := reader.f.Close(); err != nil {
 		return errors.WithStack(err)
 	}
 	return nil
 }
-func (reader *segmentBlockReader) Offset() (begin int64, end int64) {
+func (reader *segmentReader) Offset() (begin int64, end int64) {
 	return reader.soffset.From, reader.soffset.To
 }
 
-func (reader *segmentBlockReader) Seek(offset int64, whence int) (int64, error) {
+func (reader *segmentReader) Seek(offset int64, whence int) (int64, error) {
 	newOffset := offset
 	if whence == io.SeekStart {
 
@@ -48,7 +48,7 @@ func (reader *segmentBlockReader) Seek(offset int64, whence int) (int64, error) 
 	return newOffset, nil
 }
 
-func (reader *segmentBlockReader) Read(p []byte) (n int, err error) {
+func (reader *segmentReader) Read(p []byte) (n int, err error) {
 	if reader.offset > reader.soffset.To {
 		return 0, errors.WithStack(ErrOutOfOffsetRangeEnd)
 	}

@@ -19,7 +19,9 @@ type Segment interface {
 	CreateTS() time.Time
 	GetStreamOffsets() []StreamOffset
 
-	newStreamBlockReader(streamID StreamID) (streamBlockReader, error)
+	newStreamSectionReader(streamID StreamID) (SectionReader, error)
+
+	io.Closer
 }
 
 type segment struct {
@@ -28,6 +30,8 @@ type segment struct {
 	//streambaseOffset head size
 	streambaseOffset int64
 }
+
+var _ Segment = (*segment)(nil)
 
 func newSegment(f *os.File) (*segment, error) {
 	var buf = make([]byte, 4)
@@ -92,7 +96,7 @@ func (s *segment) GetStreamOffsets() []StreamOffset {
 	}
 	return offsets
 }
-func (s *segment) newStreamBlockReader(streamID StreamID) (streamBlockReader, error) {
+func (s *segment) newStreamSectionReader(streamID StreamID) (SectionReader, error) {
 	offset, ok := s.footer.StreamOffsets[uint64(streamID)]
 	if !ok {
 		return nil, errors.New("no find streamID in segment")
@@ -106,9 +110,16 @@ func (s *segment) newStreamBlockReader(streamID StreamID) (streamBlockReader, er
 		_ = newFile.Close()
 		return nil, errors.WithMessage(err, "seek failed")
 	}
-	return &segmentBlockReader{
+	return &segmentReader{
 		soffset: offset,
 		offset:  offset.Offset,
 		f:       newFile,
 	}, nil
+}
+
+func (s *segment) Close() error {
+	if err := s.f.Close(); err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }

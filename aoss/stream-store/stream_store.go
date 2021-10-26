@@ -51,6 +51,8 @@ type StreamStore struct {
 
 	segmentLocker sync.RWMutex
 	segments      []Segment
+
+	wg sync.WaitGroup
 }
 
 type AppendCallbackFn = func(offset int64, err error)
@@ -108,7 +110,7 @@ func Open(options Options) (*StreamStore, error) {
 	}
 
 	ss.mtable = newMTable(ss.omap)
-
+	ss.wg.Add(3)
 	ss.startWriteEntryRoutine()
 	ss.startFlushMTableRoutine()
 	ss.startCallbackRoutine()
@@ -164,6 +166,7 @@ func (ss *StreamStore) appendEntry(entry streamstorepb.Entry, fn AppendCallbackF
 
 func (ss *StreamStore) startCallbackRoutine() {
 	go func() {
+		defer ss.wg.Done()
 		for {
 			select {
 			case cb := <-ss.callbackCh:
@@ -234,6 +237,7 @@ func (ss *StreamStore) updateSegments(segment Segment) {
 }
 func (ss *StreamStore) startFlushMTableRoutine() {
 	go func() {
+		defer ss.wg.Done()
 		for {
 			select {
 			case mtable := <-ss.flushTableCh:
@@ -277,6 +281,7 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 }
 func (ss *StreamStore) startWriteEntryRoutine() {
 	go func() {
+		defer ss.wg.Done()
 		for {
 			select {
 			case entry := <-ss.appendEntryCh:
@@ -291,13 +296,13 @@ func (ss *StreamStore) startWriteEntryRoutine() {
 	}()
 }
 
-func (ss *StreamStore) findStreamBlockReader(streamID StreamID, offset int64) (streamBlockReader, error) {
+func (ss *StreamStore) newStreamSectionReader(streamID StreamID, offset int64) (SectionReader, error) {
 	ss.segmentLocker.RLock()
 	i := SearchSegments(ss.segments, streamID, offset)
 	if i != -1 {
 		segment := ss.segments[i]
 		ss.segmentLocker.RUnlock()
-		return segment.newStreamBlockReader(streamID)
+		return segment.newStreamSectionReader(streamID)
 	}
 	ss.segmentLocker.RUnlock()
 
@@ -310,15 +315,33 @@ func (ss *StreamStore) findStreamBlockReader(streamID StreamID, offset int64) (s
 }
 
 func (ss *StreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser, error) {
-	blockReader, err := ss.findStreamBlockReader(streamID, 0)
+	if _, ok := ss.omap.get(streamID); !ok {
+		return nil, errors.New("no find stream")
+	}
+	blockReader, err := ss.newStreamSectionReader(streamID, 0)
 	if err != nil {
 		return nil, err
 	}
-	offset, _ := blockReader.Offset()
+	from, _ := blockReader.Offset()
 	return &streamReader{
-		streamID:    streamID,
-		store:       ss,
-		blockReader: blockReader,
-		offset:      offset,
+		streamID:      streamID,
+		store:         ss,
+		sectionReader: blockReader,
+		offset:        from,
 	}, nil
+}
+
+func (ss *StreamStore) Closer() error {
+	if err := ss.wal.Close(); err != nil {
+		return err
+	}
+	ss.cancel()
+	ss.wg.Wait()
+	for _, segment := range ss.segments {
+		if err := segment.Close(); err != nil {
+			return err
+		}
+	}
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&[]MTable{}))
+	return nil
 }
