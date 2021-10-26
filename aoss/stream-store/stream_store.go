@@ -191,7 +191,7 @@ const (
 	segmentExt     = ".segment"
 )
 
-func (ss *StreamStore) flushMTable(mtable MTable) string {
+func (ss *StreamStore) createSegment(mtable MTable) string {
 	begin := time.Now()
 	tempfile := filepath.Join(ss.Options.SegmentDir, strconv.FormatUint(mtable.firstEntryID(), 10)+segmentTempExt)
 	f, err := os.Create(tempfile)
@@ -212,6 +212,46 @@ func (ss *StreamStore) flushMTable(mtable MTable) string {
 		WithField("elapsed", time.Since(begin)).
 		Infof("flush MTable to segment success")
 	return filename
+}
+
+func (ss *StreamStore) clearSegments() {
+	ss.segmentLocker.RLock()
+	defer ss.segmentLocker.Unlock()
+
+	for len(ss.segments) > 0 {
+		var size int64
+		for _, s := range ss.segments {
+			size += s.Size()
+		}
+		if size > ss.Retention.Size {
+			return
+		}
+		first := ss.segments[0]
+		copy(ss.segments, ss.segments[1:])
+		ss.segments[len(ss.segments)-1] = nil
+		ss.segments = ss.segments[:len(ss.segments)-1]
+		filename := first.Filename()
+		if err := first.Close(); err != nil {
+			logrus.WithField("filename", filename).
+				Panicf("close segment failed %s", err.Error())
+		}
+		if err := os.Remove(filename); err != nil {
+			logrus.WithField("filename", filename).
+				Panicf("remove segment failed")
+		}
+		logrus.WithField("filename", filename).Infof("clear segment file")
+	}
+}
+func (ss *StreamStore) flushMTable(mtable MTable) {
+	mtable.setUnmutable()
+	filename := ss.createSegment(mtable)
+	segment, err := ss.openSegment(filename)
+	if err != nil {
+		logrus.Panicf("open segment failed %+v", err)
+	}
+	ss.updateSegments(segment)
+	ss.wal.ClearLogFiles(mtable.lastEntryID())
+	ss.clearSegments()
 }
 
 func (ss *StreamStore) openSegment(filename string) (Segment, error) {
@@ -241,13 +281,9 @@ func (ss *StreamStore) startFlushMTableRoutine() {
 		for {
 			select {
 			case mtable := <-ss.flushTableCh:
-				mtable.setUnmutable()
-				filename := ss.flushMTable(mtable)
-				segment, err := ss.openSegment(filename)
-				if err != nil {
-					logrus.Panicf("open segment failed %+v", err)
-				}
-				ss.updateSegments(segment)
+
+				ss.flushMTable(mtable)
+
 			case <-ss.ctx.Done():
 				return
 			}
@@ -302,7 +338,7 @@ func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader
 	if i != -1 {
 		segment := ss.segments[i]
 		ss.segmentLocker.RUnlock()
-		return segment.newReader(streamID)
+		return segment.NewReader(streamID)
 	}
 	ss.segmentLocker.RUnlock()
 

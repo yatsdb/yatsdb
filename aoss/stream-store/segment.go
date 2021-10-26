@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 )
 
@@ -19,7 +20,10 @@ type Segment interface {
 	CreateTS() time.Time
 	GetStreamOffsets() []StreamOffset
 
-	newReader(streamID StreamID) (SectionReader, error)
+	NewReader(streamID StreamID) (SectionReader, error)
+
+	Size() int64
+	Filename() string
 
 	io.Closer
 }
@@ -96,7 +100,7 @@ func (s *segment) GetStreamOffsets() []StreamOffset {
 	}
 	return offsets
 }
-func (s *segment) newReader(streamID StreamID) (SectionReader, error) {
+func (s *segment) NewReader(streamID StreamID) (SectionReader, error) {
 	offset, ok := s.footer.StreamOffsets[uint64(streamID)]
 	if !ok {
 		return nil, errors.New("no find streamID in segment")
@@ -115,6 +119,18 @@ func (s *segment) newReader(streamID StreamID) (SectionReader, error) {
 		offset:  offset.Offset,
 		f:       newFile,
 	}, nil
+}
+
+func (s *segment) Size() int64 {
+	stat, err := s.f.Stat()
+	if err != nil {
+		logrus.WithError(err).
+			Panicf("get file stat failed")
+	}
+	return stat.Size()
+}
+func (s *segment) Filename() string {
+	return s.f.Name()
 }
 
 func (s *segment) Close() error {
