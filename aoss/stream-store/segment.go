@@ -19,7 +19,7 @@ type Segment interface {
 	CreateTS() time.Time
 	GetStreamOffsets() []StreamOffset
 
-	newStreamSectionReader(streamID StreamID) (SectionReader, error)
+	newReader(streamID StreamID) (SectionReader, error)
 
 	io.Closer
 }
@@ -96,7 +96,7 @@ func (s *segment) GetStreamOffsets() []StreamOffset {
 	}
 	return offsets
 }
-func (s *segment) newStreamSectionReader(streamID StreamID) (SectionReader, error) {
+func (s *segment) newReader(streamID StreamID) (SectionReader, error) {
 	offset, ok := s.footer.StreamOffsets[uint64(streamID)]
 	if !ok {
 		return nil, errors.New("no find streamID in segment")

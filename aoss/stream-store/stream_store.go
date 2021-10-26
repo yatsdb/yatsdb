@@ -296,20 +296,20 @@ func (ss *StreamStore) startWriteEntryRoutine() {
 	}()
 }
 
-func (ss *StreamStore) newStreamSectionReader(streamID StreamID, offset int64) (SectionReader, error) {
+func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader, error) {
 	ss.segmentLocker.RLock()
 	i := SearchSegments(ss.segments, streamID, offset)
 	if i != -1 {
 		segment := ss.segments[i]
 		ss.segmentLocker.RUnlock()
-		return segment.newStreamSectionReader(streamID)
+		return segment.newReader(streamID)
 	}
 	ss.segmentLocker.RUnlock()
 
 	mTables := *(*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
 	i = SearchMTables(mTables, streamID, offset)
 	if i != -1 {
-		return mTables[i].newStreamBlockReader(streamID)
+		return mTables[i].newReader(streamID)
 	}
 	return nil, io.EOF
 }
@@ -318,7 +318,7 @@ func (ss *StreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser, error) {
 	if _, ok := ss.omap.get(streamID); !ok {
 		return nil, errors.New("no find stream")
 	}
-	blockReader, err := ss.newStreamSectionReader(streamID, 0)
+	blockReader, err := ss.newReader(streamID, 0)
 	if err != nil {
 		return nil, err
 	}

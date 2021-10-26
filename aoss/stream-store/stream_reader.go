@@ -51,7 +51,7 @@ func (reader *streamReader) Read(p []byte) (n int, err error) {
 		if err := reader.sectionReader.Close(); err != nil {
 			logrus.Warnf("close reader failed %+v", err)
 		}
-		reader.sectionReader, err = reader.store.newStreamSectionReader(reader.streamID, reader.offset)
+		reader.sectionReader, err = reader.store.newReader(reader.streamID, reader.offset)
 		if err != nil {
 			return 0, err
 		}

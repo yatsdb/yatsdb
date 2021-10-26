@@ -27,7 +27,7 @@ type MTable interface {
 
 	setUnmutable()
 
-	newStreamBlockReader(streamID StreamID) (SectionReader, error)
+	newReader(streamID StreamID) (SectionReader, error)
 }
 
 type chunk struct {
@@ -231,7 +231,7 @@ func (m *mtable) ReadAt(streamID StreamID, data []byte, offset int64) (n int, er
 	return blocks.ReadAt(data, offset)
 }
 
-func (m *mtable) newStreamBlockReader(streamID StreamID) (SectionReader, error) {
+func (m *mtable) newReader(streamID StreamID) (SectionReader, error) {
 	m.RLock()
 	bs, ok := m.chunksMap[streamID]
 	if !ok {
