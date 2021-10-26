@@ -70,7 +70,7 @@ func (b *Chunks) Write(data []byte) int64 {
 	if b.chunks == nil {
 		b.chunks = append(b.chunks, &chunk{
 			begin: b.From,
-			buf:   make([]byte, 4*1024),
+			buf:   make([]byte, blockSize),
 		})
 	}
 	for len(data) > 0 {
@@ -78,7 +78,7 @@ func (b *Chunks) Write(data []byte) int64 {
 		if len(last.buf) == int(last.offset) {
 			b.chunks = append(b.chunks, &chunk{
 				begin: b.To,
-				buf:   make([]byte, 4*1024),
+				buf:   make([]byte, blockSize),
 			})
 			continue
 		}
@@ -96,17 +96,17 @@ func (b *Chunks) ReadAt(p []byte, offset int64) (n int, err error) {
 		return 0, ErrOutOfOffsetRangeBegin
 	}
 	b.RLock()
-	realOffset := b.From - offset
+	realOffset := offset - b.From
 	index := realOffset / int64(blockSize)
 	bOffset := realOffset % int64(blockSize)
 	if index >= int64(len(b.chunks)) {
 		b.RUnlock()
-		return 0, ErrOutOfOffsetRangeEnd
+		return 0, io.EOF
 	}
 	block := b.chunks[index]
 	if block.offset < int(bOffset) && index == int64(len(b.chunks)-1) {
 		b.RUnlock()
-		return 0, ErrOutOfOffsetRangeEnd
+		return 0, io.EOF
 	}
 	for i := index; i < int64(len(b.chunks)); i++ {
 		block := b.chunks[i]
