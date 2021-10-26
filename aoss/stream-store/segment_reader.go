@@ -40,8 +40,6 @@ func (reader *segmentReader) Seek(offset int64, whence int) (int64, error) {
 
 	if newOffset < reader.soffset.From {
 		return 0, errors.WithStack(ErrOutOfOffsetRangeBegin)
-	} else if newOffset > reader.soffset.To {
-		return 0, errors.WithStack(ErrOutOfOffsetRangeEnd)
 	}
 
 	reader.offset = newOffset
@@ -49,13 +47,7 @@ func (reader *segmentReader) Seek(offset int64, whence int) (int64, error) {
 }
 
 func (reader *segmentReader) Read(p []byte) (n int, err error) {
-	if reader.offset > reader.soffset.To {
-		return 0, errors.WithStack(ErrOutOfOffsetRangeEnd)
-	}
-	if reader.offset < reader.soffset.From {
-		return 0, errors.WithStack(ErrOutOfOffsetRangeBegin)
-	}
-	if reader.offset == reader.soffset.To {
+	if reader.offset >= reader.soffset.To {
 		return 0, io.EOF
 	}
 	remain := reader.soffset.To - reader.offset
