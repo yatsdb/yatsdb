@@ -10,8 +10,8 @@ if ! [[ "$0" =~ "scripts/genproto.sh" ]]; then
 	exit 255
 fi
 
-if ! [[ $(protoc --version) =~ "3.15.8" ]]; then
-	echo "could not find protoc 3.15.8, is it installed + in PATH?"
+if ! [[ $(protoc --version) =~ "3.19.0" ]]; then
+	echo "could not find protoc 3.19.0, is it installed + in PATH?"
 	exit 255
 fi
 
@@ -31,7 +31,10 @@ GOGOPROTO_PATH="${GOGOPROTO_ROOT}:${GOGOPROTO_ROOT}/protobuf"
 GRPC_GATEWAY_ROOT="$(GO111MODULE=on go list -mod=readonly -f '{{ .Dir }}' -m github.com/grpc-ecosystem/grpc-gateway)"
 PROMETHUES_ROOT="$(GO111MODULE=on go list -mod=readonly -f '{{ .Dir }}' -m github.com/prometheus/prometheus)"
 
-DIRS="inverted-Index"
+DIRS="
+inverted-Index
+aoss/stream-store/pb
+"
 
 echo "generating code"
 for dir in ${DIRS}; do
@@ -43,13 +46,13 @@ for dir in ${DIRS}; do
             -I="${PROMETHUES_ROOT}" \
             ./*.proto
 
-		sed -i.bak -E 's/import _ \"github.com\/gogo\/protobuf\/gogoproto\"//g' -- *.pb.go
-		sed -i.bak -E 's/prompb \"prompb\"//g' -- *.pb.go
-		sed -i.bak -E 's/import _ \"google\/protobuf\"//g' -- *.pb.go
-		sed -i.bak -E 's/\t_ \"google\/protobuf\"//g' -- *.pb.go
-		sed -i.bak -E 's/golang\/protobuf\/descriptor/gogo\/protobuf\/protoc-gen-gogo\/descriptor/g' -- *.go
-		sed -i.bak -E 's/golang\/protobuf/gogo\/protobuf/g' -- *.go
-		rm -f -- *.bak
+		sed -i.bak -E 's/import _ \"github.com\/gogo\/protobuf\/gogoproto\"//g' *.pb.go
+		sed -i.bak -E 's/prompb \"prompb\"//g'  *.pb.go
+		sed -i.bak -E 's/import _ \"google\/protobuf\"//g'  *.pb.go
+		sed -i.bak -E 's/\t_ \"google\/protobuf\"//g'  *.pb.go
+		sed -i.bak -E 's/golang\/protobuf\/descriptor/gogo\/protobuf\/protoc-gen-gogo\/descriptor/g'  *.go
+		sed -i.bak -E 's/golang\/protobuf/gogo\/protobuf/g'  *.go
+		rm -f  *.bak
 		goimports -w ./*.go
 	popd
 done
