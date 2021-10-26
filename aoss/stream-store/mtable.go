@@ -9,25 +9,27 @@ import (
 
 	"github.com/pkg/errors"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
+	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 )
 
 type MTable interface {
 	GetStreamOffset
 
-	firstEntryID() uint64
-	lastEntryID() uint64
+	FirstEntryID() uint64
 
+	//
+	LastEntryID() uint64
+
+	//Write write entry to memory,and return end of stream
 	Write(streamstorepb.Entry) (offset int64)
 	//table size
 	Size() int
 	//flush to segment
 	writeSegment(f *os.File) error
-	//read stream from mtables
-	ReadAt(streamID StreamID, data []byte, offset int64) (n int, err error)
 
-	setUnmutable()
+	SetUnmutable()
 
-	newReader(streamID StreamID) (SectionReader, error)
+	NewReader(streamID StreamID) (SectionReader, error)
 }
 
 type chunk struct {
@@ -44,11 +46,11 @@ type Chunks struct {
 
 type mtable struct {
 	disableRWLocker
-	size      int
-	omap      OffsetMap
-	fID       uint64
-	lID       uint64
-	chunksMap map[StreamID]*Chunks
+	size         int
+	omap         OffsetMap
+	fristEntryID uint64
+	lastEntryID  uint64
+	chunksMap    map[StreamID]*Chunks
 }
 
 var blockSize = 4 * 1024
@@ -130,7 +132,8 @@ var _ MTable = (*mtable)(nil)
 
 func newMTable(omap OffsetMap) MTable {
 	return &mtable{
-		omap: omap,
+		omap:      omap,
+		chunksMap: make(map[invertedindex.StreamID]*Chunks, 1024*1024),
 	}
 }
 
@@ -142,12 +145,12 @@ func (m *mtable) Offset(streamID StreamID) (StreamOffset, bool) {
 	return StreamOffset{}, false
 }
 
-func (m *mtable) firstEntryID() uint64 {
-	return m.fID
+func (m *mtable) FirstEntryID() uint64 {
+	return m.fristEntryID
 }
 
-func (m *mtable) lastEntryID() uint64 {
-	return m.lID
+func (m *mtable) LastEntryID() uint64 {
+	return m.lastEntryID
 }
 
 func (m *mtable) Write(entry streamstorepb.Entry) (offset int64) {
@@ -159,10 +162,16 @@ func (m *mtable) Write(entry streamstorepb.Entry) (offset int64) {
 			StreamOffset: StreamOffset{
 				StreamID: entry.StreamId,
 				From:     offset,
+				To:       offset,
 			},
 		}
 		m.chunksMap[entry.StreamId] = blocks
 	}
+	m.size += len(entry.Data)
+	if m.fristEntryID == 0 {
+		m.fristEntryID = entry.ID
+	}
+	m.lastEntryID = entry.ID
 	m.Unlock()
 	return blocks.Write(entry.Data)
 }
@@ -172,10 +181,10 @@ func (m *mtable) Size() int {
 	return m.size
 }
 
-func (m *mtable) setUnmutable() {
-	m.setDisable()
+func (m *mtable) SetUnmutable() {
+	m.Disable()
 	for _, blocks := range m.chunksMap {
-		blocks.setDisable()
+		blocks.Disable()
 	}
 }
 
@@ -188,8 +197,8 @@ func (m *mtable) writeSegment(f *os.File) error {
 	var footer = streamstorepb.SegmentFooter{
 		CreateTS:      time.Now().UnixNano(),
 		StreamOffsets: map[uint64]streamstorepb.StreamOffset{},
-		FirstEntryId:  m.fID,
-		LastEntryId:   m.lID,
+		FirstEntryId:  m.fristEntryID,
+		LastEntryId:   m.lastEntryID,
 	}
 	for streamID, blocks := range m.chunksMap {
 		footer.StreamOffsets[uint64(streamID)] = streamstorepb.StreamOffset{
@@ -219,19 +228,7 @@ func (m *mtable) writeSegment(f *os.File) error {
 	return nil
 }
 
-//read stream from mtables
-func (m *mtable) ReadAt(streamID StreamID, data []byte, offset int64) (n int, err error) {
-	m.RLock()
-	blocks, ok := m.chunksMap[streamID]
-	if !ok {
-		m.RUnlock()
-		return 0, io.EOF
-	}
-	m.RUnlock()
-	return blocks.ReadAt(data, offset)
-}
-
-func (m *mtable) newReader(streamID StreamID) (SectionReader, error) {
+func (m *mtable) NewReader(streamID StreamID) (SectionReader, error) {
 	m.RLock()
 	bs, ok := m.chunksMap[streamID]
 	if !ok {
@@ -271,7 +268,7 @@ func (m *disableRWLocker) Unlock() {
 		m.mtx.Unlock()
 	}
 }
-func (m *disableRWLocker) setDisable() {
+func (m *disableRWLocker) Disable() {
 	m.mtx.Lock()
 	m.disable = true
 	m.mtx.Unlock()

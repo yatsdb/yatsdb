@@ -194,7 +194,7 @@ const (
 func (ss *StreamStore) createSegment(mtable MTable) string {
 	begin := time.Now()
 	tempfile := filepath.Join(ss.Options.SegmentDir,
-		strconv.FormatUint(mtable.firstEntryID(), 10)+segmentTempExt)
+		strconv.FormatUint(mtable.FirstEntryID(), 10)+segmentTempExt)
 	f, err := os.Create(tempfile)
 	if err != nil {
 		logrus.WithError(err).Panicf("create file failed")
@@ -208,7 +208,7 @@ func (ss *StreamStore) createSegment(mtable MTable) string {
 			WithError(err).Panicf("close segment failed")
 	}
 	filename := filepath.Join(ss.Options.SegmentDir,
-		strconv.FormatUint(mtable.firstEntryID(), 10)+segmentExt)
+		strconv.FormatUint(mtable.FirstEntryID(), 10)+segmentExt)
 	if err := os.Rename(tempfile, filename); err != nil {
 		logrus.WithField("from", tempfile).
 			WithField("to", filename).
@@ -262,14 +262,14 @@ func (ss *StreamStore) clearSegments() {
 	}
 }
 func (ss *StreamStore) flushMTable(mtable MTable) {
-	mtable.setUnmutable()
+	mtable.SetUnmutable()
 	filename := ss.createSegment(mtable)
 	segment, err := ss.openSegment(filename)
 	if err != nil {
 		logrus.Panicf("open segment failed %+v", err)
 	}
 	ss.updateSegments(segment)
-	ss.wal.ClearLogFiles(mtable.lastEntryID())
+	ss.wal.ClearLogFiles(mtable.LastEntryID())
 	ss.clearSegments()
 }
 
@@ -322,7 +322,7 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 		return offset
 	}
 	unmutTable := ss.mtable
-	unmutTable.setUnmutable()
+	unmutTable.SetUnmutable()
 	ss.mtable = newMTable(ss.omap)
 
 	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
@@ -362,7 +362,7 @@ func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader
 	mTables := *(*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
 	i = SearchMTables(mTables, streamID, offset)
 	if i != -1 {
-		return mTables[i].newReader(streamID)
+		return mTables[i].NewReader(streamID)
 	}
 	return nil, io.EOF
 }

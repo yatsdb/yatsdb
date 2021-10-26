@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
+	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	"gopkg.in/stretchr/testify.v1/assert"
 )
 
@@ -182,4 +184,124 @@ func TestChunks_ReadAt(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, ret == 10)
 	assert.True(t, string(buf) == "helloworld")
+}
+
+func Test_newMTable(t *testing.T) {
+	type args struct {
+		omap OffsetMap
+	}
+	omap := newOffsetMap()
+	tests := []struct {
+		name string
+		args args
+		want MTable
+	}{
+		{
+			name: "",
+			args: args{
+				omap: omap,
+			},
+			want: &mtable{
+				disableRWLocker: disableRWLocker{},
+				size:            0,
+				omap:            omap,
+				fristEntryID:    0,
+				lastEntryID:     0,
+				chunksMap:       map[invertedindex.StreamID]*Chunks{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.NotNil(t, newMTable(tt.args.omap))
+		})
+	}
+}
+
+func Test_mtable_Write(t *testing.T) {
+	blockSize = 11
+	type args struct {
+		entry streamstorepb.Entry
+	}
+	omap := newOffsetMap()
+	omap.set(1, 128)
+	m := newMTable(omap)
+
+	tests := []struct {
+		name       string
+		args       args
+		wantOffset int64
+	}{
+		{
+			name: "",
+			args: args{
+				entry: streamstorepb.Entry{
+					StreamId: 1,
+					Data:     make([]byte, 128),
+					ID:       1,
+				},
+			},
+			wantOffset: 256,
+		},
+		{
+			name: "",
+			args: args{
+				entry: streamstorepb.Entry{
+					StreamId: 1,
+					Data:     make([]byte, 128),
+					ID:       2,
+				},
+			},
+			wantOffset: 256 + 128,
+		},
+		{
+			name: "",
+			args: args{
+				entry: streamstorepb.Entry{
+					StreamId: 1,
+					Data:     make([]byte, 128),
+					ID:       99999,
+				},
+			},
+			wantOffset: 512,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if gotOffset := m.Write(tt.args.entry); gotOffset != tt.wantOffset {
+				t.Errorf("mtable.Write() = %v, want %v", gotOffset, tt.wantOffset)
+			}
+		})
+	}
+
+	size := m.Size()
+	assert.Equal(t, 128*3, size)
+
+	assert.Equal(t, m.FirstEntryID(), uint64(1))
+	assert.Equal(t, m.LastEntryID(), uint64(99999))
+
+	offset, ok := m.Offset(1)
+	assert.True(t, ok)
+
+	assert.Equal(t, offset, StreamOffset{
+		StreamID: 1,
+		From:     128,
+		To:       512,
+	})
+
+	reader, err := m.NewReader(1)
+	assert.NoError(t, err)
+
+	n, err := reader.Read(make([]byte, 1024))
+	assert.NoError(t, err)
+	assert.Equal(t, n, 128*3)
+
+	ret, err := reader.Seek(0, 1)
+	assert.NoError(t, err)
+
+	assert.Equal(t, int64(512), ret)
+
+	_, err = reader.Read(make([]byte, 10))
+	assert.Equal(t, err, io.EOF)
+
 }
