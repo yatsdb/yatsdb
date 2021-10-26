@@ -193,20 +193,26 @@ const (
 
 func (ss *StreamStore) createSegment(mtable MTable) string {
 	begin := time.Now()
-	tempfile := filepath.Join(ss.Options.SegmentDir, strconv.FormatUint(mtable.firstEntryID(), 10)+segmentTempExt)
+	tempfile := filepath.Join(ss.Options.SegmentDir,
+		strconv.FormatUint(mtable.firstEntryID(), 10)+segmentTempExt)
 	f, err := os.Create(tempfile)
 	if err != nil {
 		logrus.WithError(err).Panicf("create file failed")
 	}
 	if err := mtable.writeSegment(f); err != nil {
-		logrus.WithField("filename", tempfile).WithError(err).Panicf("write segment failed")
+		logrus.WithField("filename", tempfile).
+			WithError(err).Panicf("write segment failed")
 	}
 	if err := f.Close(); err != nil {
-		logrus.WithField("filename", tempfile).WithError(err).Panicf("close segment failed")
+		logrus.WithField("filename", tempfile).
+			WithError(err).Panicf("close segment failed")
 	}
-	filename := filepath.Join(ss.Options.SegmentDir, strconv.FormatUint(mtable.firstEntryID(), 10)+segmentExt)
+	filename := filepath.Join(ss.Options.SegmentDir,
+		strconv.FormatUint(mtable.firstEntryID(), 10)+segmentExt)
 	if err := os.Rename(tempfile, filename); err != nil {
-		logrus.WithField("from", tempfile).WithField("to", filename).WithError(err).Panicf("rename failed")
+		logrus.WithField("from", tempfile).
+			WithField("to", filename).
+			WithError(err).Panicf("rename failed")
 	}
 	logrus.WithField("filename", filename).
 		WithField("elapsed", time.Since(begin)).
@@ -214,9 +220,34 @@ func (ss *StreamStore) createSegment(mtable MTable) string {
 	return filename
 }
 
+func (ss *StreamStore) clearFirstSegmentWithLock() {
+	first := ss.segments[0]
+	copy(ss.segments, ss.segments[1:])
+	ss.segments[len(ss.segments)-1] = nil
+	ss.segments = ss.segments[:len(ss.segments)-1]
+
+	filename := first.Filename()
+	if err := first.Close(); err != nil {
+		logrus.WithField("filename", filename).
+			Panicf("close segment failed %s", err.Error())
+	}
+	if err := os.Remove(filename); err != nil {
+		logrus.WithField("filename", filename).
+			Panicf("remove segment failed")
+	}
+	logrus.WithField("filename", filename).Infof("clear segment file")
+}
 func (ss *StreamStore) clearSegments() {
 	ss.segmentLocker.RLock()
 	defer ss.segmentLocker.Unlock()
+
+	for len(ss.segments) > 0 {
+		if time.Now().Sub(ss.segments[0].CreateTS()) > ss.Retention.Time {
+			ss.clearFirstSegmentWithLock()
+			continue
+		}
+		break
+	}
 
 	for len(ss.segments) > 0 {
 		var size int64
@@ -224,22 +255,10 @@ func (ss *StreamStore) clearSegments() {
 			size += s.Size()
 		}
 		if size > ss.Retention.Size {
-			return
+			ss.clearFirstSegmentWithLock()
+			continue
 		}
-		first := ss.segments[0]
-		copy(ss.segments, ss.segments[1:])
-		ss.segments[len(ss.segments)-1] = nil
-		ss.segments = ss.segments[:len(ss.segments)-1]
-		filename := first.Filename()
-		if err := first.Close(); err != nil {
-			logrus.WithField("filename", filename).
-				Panicf("close segment failed %s", err.Error())
-		}
-		if err := os.Remove(filename); err != nil {
-			logrus.WithField("filename", filename).
-				Panicf("remove segment failed")
-		}
-		logrus.WithField("filename", filename).Infof("clear segment file")
+		break
 	}
 }
 func (ss *StreamStore) flushMTable(mtable MTable) {
@@ -281,9 +300,7 @@ func (ss *StreamStore) startFlushMTableRoutine() {
 		for {
 			select {
 			case mtable := <-ss.flushTableCh:
-
 				ss.flushMTable(mtable)
-
 			case <-ss.ctx.Done():
 				return
 			}
