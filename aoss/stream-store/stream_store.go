@@ -199,7 +199,7 @@ func (ss *StreamStore) createSegment(mtable MTable) string {
 	if err != nil {
 		logrus.WithError(err).Panicf("create file failed")
 	}
-	if err := mtable.writeSegment(f); err != nil {
+	if err := mtable.WriteToSegment(f); err != nil {
 		logrus.WithField("filename", tempfile).
 			WithError(err).Panicf("write segment failed")
 	}

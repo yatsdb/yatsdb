@@ -3,7 +3,6 @@ package streamstore
 import (
 	"encoding/binary"
 	"io"
-	"os"
 	"sync"
 	"time"
 
@@ -25,7 +24,7 @@ type MTable interface {
 	//table size
 	Size() int
 	//flush to segment
-	writeSegment(f *os.File) error
+	WriteToSegment(wser io.WriteSeeker) error
 
 	SetUnmutable()
 
@@ -155,17 +154,17 @@ func (m *mtable) LastEntryID() uint64 {
 
 func (m *mtable) Write(entry streamstorepb.Entry) (offset int64) {
 	m.Lock()
-	blocks, ok := m.chunksMap[entry.StreamId]
+	chunks, ok := m.chunksMap[entry.StreamId]
 	if !ok {
 		offset, _ := m.omap.get(entry.StreamId)
-		blocks = &Chunks{
+		chunks = &Chunks{
 			StreamOffset: StreamOffset{
 				StreamID: entry.StreamId,
 				From:     offset,
 				To:       offset,
 			},
 		}
-		m.chunksMap[entry.StreamId] = blocks
+		m.chunksMap[entry.StreamId] = chunks
 	}
 	m.size += len(entry.Data)
 	if m.fristEntryID == 0 {
@@ -173,7 +172,7 @@ func (m *mtable) Write(entry streamstorepb.Entry) (offset int64) {
 	}
 	m.lastEntryID = entry.ID
 	m.Unlock()
-	return blocks.Write(entry.Data)
+	return chunks.Write(entry.Data)
 }
 
 //table size
@@ -188,8 +187,8 @@ func (m *mtable) SetUnmutable() {
 	}
 }
 
-func (m *mtable) writeSegment(f *os.File) error {
-	if _, err := f.Write(make([]byte, 4)); err != nil {
+func (m *mtable) WriteToSegment(ws io.WriteSeeker) error {
+	if _, err := ws.Write(make([]byte, 4)); err != nil {
 		return errors.WithStack(err)
 	}
 	var offset int64
@@ -207,7 +206,7 @@ func (m *mtable) writeSegment(f *os.File) error {
 			To:       blocks.To,
 			Offset:   offset,
 		}
-		n, err := blocks.WriteTo(f)
+		n, err := blocks.WriteTo(ws)
 		if err != nil {
 			return err
 		}
@@ -217,12 +216,15 @@ func (m *mtable) writeSegment(f *os.File) error {
 	if err != nil {
 		return errors.WithStack(err)
 	}
-	if _, err := f.Write(data); err != nil {
+	if _, err := ws.Write(data); err != nil {
 		return errors.WithStack(err)
 	}
 	var header = make([]byte, 4)
 	binary.BigEndian.PutUint32(header, uint32(offset))
-	if _, err := f.WriteAt(header, 0); err != nil {
+	if _, err := ws.Seek(0, 0); err != nil {
+		return errors.WithStack(err)
+	}
+	if _, err := ws.Write(header); err != nil {
 		return errors.WithStack(err)
 	}
 	return nil
