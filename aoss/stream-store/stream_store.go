@@ -382,7 +382,7 @@ func (ss *StreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser, error) {
 	}, nil
 }
 
-func (ss *StreamStore) Closer() error {
+func (ss *StreamStore) Close() error {
 	if err := ss.wal.Close(); err != nil {
 		return err
 	}
