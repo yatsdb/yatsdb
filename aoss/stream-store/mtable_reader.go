@@ -21,15 +21,16 @@ func (reader *mtableReader) Offset() (begin int64, end int64) {
 }
 
 var errSeekInvalidOffset = errors.New("Seek: invalid offset")
+var errSeekInvalidWhence = errors.New("Seek: invalid whence")
 
 func (reader *mtableReader) Seek(offset int64, whence int) (int64, error) {
 	if whence == io.SeekStart {
 	} else if whence == io.SeekCurrent {
 		offset += reader.offset
 	} else if whence == io.SeekEnd {
-		return 0, errors.New("mtable blocks reader no support `Seek` from `SeekEnd` of stream")
+		return 0, errors.New("no support seek whence `io.SeekEnd`")
 	} else {
-		return 0, errors.New("`Seek` argument error")
+		return 0, errSeekInvalidWhence
 	}
 
 	if offset < reader.chunks.From {
