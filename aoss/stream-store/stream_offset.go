@@ -18,7 +18,7 @@ func SearchSegments(segment []Segment, streamID StreamID, offset int64) int {
 		if !ok {
 			continue
 		}
-		if offset < soffset.To {
+		if soffset.From <= offset && offset < soffset.To {
 			return i
 		}
 	}
@@ -31,7 +31,7 @@ func SearchMTables(mtables []MTable, streamID StreamID, offset int64) int {
 		if !ok {
 			continue
 		}
-		if offset < soffset.To {
+		if soffset.From <= offset && offset < soffset.To {
 			return i
 		}
 	}
