@@ -262,7 +262,6 @@ func (ss *StreamStore) clearSegments() {
 	}
 }
 func (ss *StreamStore) flushMTable(mtable MTable) {
-	mtable.SetUnmutable()
 	filename := ss.createSegment(mtable)
 	segment, err := ss.openSegment(filename)
 	if err != nil {
@@ -322,7 +321,6 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 		return offset
 	}
 	unmutTable := ss.mtable
-	unmutTable.SetUnmutable()
 	ss.mtable = newMTable(ss.omap)
 
 	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))

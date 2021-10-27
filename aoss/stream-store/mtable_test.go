@@ -203,12 +203,11 @@ func Test_newMTable(t *testing.T) {
 				omap: omap,
 			},
 			want: &mtable{
-				disableRWLocker: disableRWLocker{},
-				size:            0,
-				omap:            omap,
-				fristEntryID:    0,
-				lastEntryID:     0,
-				chunksMap:       map[invertedindex.StreamID]*Chunks{},
+				size:         0,
+				omap:         omap,
+				fristEntryID: 0,
+				lastEntryID:  0,
+				chunksMap:    map[invertedindex.StreamID]*Chunks{},
 			},
 		},
 	}
