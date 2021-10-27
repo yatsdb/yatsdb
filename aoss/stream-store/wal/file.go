@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 const (
@@ -75,6 +76,9 @@ func (lf *logFile) Rename() error {
 			return errors.WithStack(err)
 		}
 		lf.filename = path
+		logrus.WithField("filename", lf.f.Name()).
+			WithField("new filename", path).
+			Infof("rename wal success")
 	}
 	return nil
 }

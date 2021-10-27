@@ -147,11 +147,6 @@ func (wal *wal) startSyncEntriesGoroutine() {
 				logrus.Panicf("sync file failed %s", err.Error())
 			}
 			syncEntriesCb(entries, nil)
-			if lf.Size() > wal.MaxLogSize {
-				if err := lf.Rename(); err != nil {
-					logrus.Panicf("rename failed %+v", err)
-				}
-			}
 		}
 	}()
 }
@@ -237,6 +232,9 @@ func (wal *wal) startWriteEntryGoroutine() {
 
 			if file.Size() > wal.MaxLogSize {
 				file.SetLastEntryID(batch.Entries[len(batch.Entries)-1].ID)
+				if err := file.Rename(); err != nil {
+					logrus.Panicf("rename wal failed %+v", err)
+				}
 				file, err = wal.nextLog()
 				if err != nil {
 					if err == wal.ctx.Err() {

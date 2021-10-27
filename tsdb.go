@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/dgraph-io/badger/v3"
 	"github.com/pkg/errors"
@@ -173,12 +174,18 @@ func (tsdb *tsdb) ReadSamples(ctx context.Context, req *prompb.ReadRequest) (*pr
 
 	var wg sync.WaitGroup
 	for _, query := range req.Queries {
+		begin := time.Now()
 		streamMetrics, err := tsdb.streamMetricQuerier.QueryStreamMetric(query)
 		if err != nil {
 			return nil, err
 		}
+		logrus.WithField("take time", time.Since(begin)).
+			WithField("metrics count", len(streamMetrics)).
+			Infof("QueryStreamMetric success")
 		var QueryResult prompb.QueryResult
 		for _, streamMetric := range streamMetrics {
+			logrus.WithField("metric", streamMetric.ToPromString()).Infof("start read metrics")
+
 			var timeSeries prompb.TimeSeries
 			QueryResult.Timeseries = append(QueryResult.Timeseries, &timeSeries)
 			select {

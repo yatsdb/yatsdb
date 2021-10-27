@@ -24,15 +24,15 @@ func DefaultOptionsWithDir(dir string) Options {
 	}
 	return Options{
 		WalOptions: wal.Options{
-			SyncWrite:     true,
+			SyncWrite:     false,
 			SyncBatchSize: 1024,
 			MaxLogSize:    128 << 20,
 			Dir:           filepath.Join(dir, "wals"),
 			BatchSize:     1024,
 			TruncateLast:  true,
 		},
-		MaxMemTableSize: 256 << 20,
-		MaxMTables:      4,
+		MaxMemTableSize: 512 << 20,
+		MaxMTables:      1,
 		SegmentDir:      filepath.Join(dir, "segments"),
 		Retention: struct {
 			Time time.Duration `json:"retention,omitempty"`

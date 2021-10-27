@@ -4,12 +4,12 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"time"
 
 	"github.com/golang/snappy"
 	"github.com/sirupsen/logrus"
 	"github.com/yatsdb/yatsdb"
-	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote"
@@ -18,14 +18,7 @@ import (
 func main() {
 	logrus.SetLevel(logrus.DebugLevel)
 
-	tsdb, err := yatsdb.OpenTSDB(yatsdb.Options{
-		BadgerDBStoreDir: "data/index",
-		FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
-			Dir:            "data/fileStream",
-			SyncWrite:      false,
-			WriteGorutines: 128,
-		},
-	})
+	tsdb, err := yatsdb.OpenTSDB(yatsdb.DefaultOptions("data"))
 	if err != nil {
 		logrus.Panicf("openTSDB failed %+v", err)
 	}
@@ -33,7 +26,8 @@ func main() {
 	if tsdb == nil {
 		panic("OpenTSDB failed")
 	}
-
+	var samples int
+	var takeTimes time.Duration
 	http.HandleFunc("/write", func(w http.ResponseWriter, r *http.Request) {
 		req, err := remote.DecodeWriteRequest(r.Body)
 		if err != nil {
@@ -45,12 +39,25 @@ func main() {
 			logrus.Errorf("tsdb write sample failed %+v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		var samples int
 		for _, timeSeries := range req.Timeseries {
 			samples += len(timeSeries.Samples)
 		}
-		logrus.Infof("writeSamples count %d success take time %s", samples, time.Since(begin))
+		takeTimes += time.Since(begin)
 	})
+
+	go func() {
+		lastTT := takeTimes
+		lastSamples := samples
+		for {
+			time.Sleep(time.Second)
+			tmpTakeTimes := takeTimes
+			tmpSamples := samples
+			logrus.WithField("take time", tmpTakeTimes-lastTT).
+				WithField("samples", tmpSamples-lastSamples).Infof("write samples per second")
+			lastTT = tmpTakeTimes
+			lastSamples = tmpSamples
+		}
+	}()
 
 	http.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
 		compressed, err := ioutil.ReadAll(r.Body)
@@ -105,4 +112,5 @@ func main() {
 		}
 	})
 	log.Fatal(http.ListenAndServe(":9201", nil))
+
 }

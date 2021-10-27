@@ -368,6 +368,10 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 	if ss.mtable.Size() < ss.MaxMemTableSize {
 		return offset
 	}
+	logrus.WithField("stream_count", ss.mtable.StreamCount()).
+		WithField("alloc_size", ss.mtable.ChunkAllocSize()).
+		WithField("size", ss.mtable.Size()).
+		Infof("mtable stat")
 	unmutTable := ss.mtable
 	ss.mtable = newMTable(ss.omap)
 	ss.appendMtable(ss.mtable)
