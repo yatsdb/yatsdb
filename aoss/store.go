@@ -3,6 +3,8 @@ package aoss
 import (
 	"io"
 
+	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
+	streamstore "github.com/yatsdb/yatsdb/aoss/stream-store"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 )
 
@@ -21,3 +23,6 @@ type StreamStore interface {
 	StreamAppender
 	StreamReader
 }
+
+var _ StreamStore = (*filestreamstore.FileStreamStore)(nil)
+var _ StreamStore = (*streamstore.StreamStore)(nil)

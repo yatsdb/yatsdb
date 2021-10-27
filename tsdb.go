@@ -16,6 +16,7 @@ import (
 	"github.com/sirupsen/logrus"
 	aoss "github.com/yatsdb/yatsdb/aoss"
 	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
+	streamstore "github.com/yatsdb/yatsdb/aoss/stream-store"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
@@ -27,6 +28,7 @@ type TSDB interface {
 }
 
 type StreamID = invertedindex.StreamID
+
 type SeriesStreamOffset = ssoffsetindex.SeriesStreamOffset
 
 type WriteSampleCallback func(offset SeriesStreamOffset, err error)
@@ -84,7 +86,7 @@ type tsdb struct {
 
 	metricIndexDB invertedindex.DB
 	offsetDB      ssoffsetindex.OffsetDB
-	streanStore   aoss.StreamStore
+	streamStore   aoss.StreamStore
 
 	metricStreamReader   MetricSampleIteratorCreater
 	streamMetricQuerier  StreamMetricQuerier
@@ -110,18 +112,25 @@ func OpenTSDB(options Options) (TSDB, error) {
 	if options.ReadGorutines == 0 {
 		options.ReadGorutines = 128
 	}
-	if err := mkdirAll(options.FileStreamStoreOptions.Dir, options.BadgerDBStoreDir); err != nil {
+	if err := mkdirAll(options.BadgerDBStoreDir); err != nil {
 		return nil, err
+	}
+	var streamStore aoss.StreamStore
+	var err error
+	if options.EnableStreamStore {
+		streamStore, err = streamstore.Open(options.StreamStoreOptions)
+	} else {
+		streamStore, err = filestreamstore.OpenFileStreamStore(options.FileStreamStoreOptions)
+	}
+	if err != nil {
+		return nil, errors.WithStack(err)
 	}
 
 	db, err := badger.Open(badger.DefaultOptions(options.BadgerDBStoreDir))
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	streamStore, err := filestreamstore.OpenFileStreamStore(options.FileStreamStoreOptions)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 1024, db).Start()
 	offsetDB := ssoffsetindex.NewSeriesStreamOffsetIndex(db, batcher)
@@ -131,7 +140,7 @@ func OpenTSDB(options Options) (TSDB, error) {
 		cancel:        cancel,
 		metricIndexDB: metricIndexDB,
 		offsetDB:      offsetDB,
-		streanStore:   streamStore,
+		streamStore:   streamStore,
 		samplesWriter: &samplesWriter{streamAppender: streamStore},
 		metricStreamReader: &metricSampleIteratorCreater{
 			streamReader: streamStore,
