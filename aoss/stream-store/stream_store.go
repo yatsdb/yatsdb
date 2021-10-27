@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -58,7 +59,6 @@ type StreamStore struct {
 type AppendCallbackFn = func(offset int64, err error)
 
 func Open(options Options) (*StreamStore, error) {
-
 	ctx, cancel := context.WithCancel(context.Background())
 	var ss = &StreamStore{
 		Options:       options,
@@ -66,15 +66,20 @@ func Open(options Options) (*StreamStore, error) {
 		cancel:        cancel,
 		appendEntryCh: make(chan appendEntry, 1024),
 		mtableMtx:     sync.Mutex{},
-		mtable:        nil,
 		omap:          newOffsetMap(),
 		mTables:       &[]MTable{},
-		callbackCh:    make(chan func()),
-		flushTableCh:  make(chan MTable),
+		callbackCh:    make(chan func(), 64*1024),
+		flushTableCh:  make(chan MTable, 4),
 		segmentLocker: sync.RWMutex{},
-		segments:      []Segment{},
 	}
-	filepath.Walk(options.SegmentDir, func(path string, info fs.FileInfo, err error) error {
+	for _, dir := range []string{options.SegmentDir, options.WalOptions.Dir} {
+		if err := os.MkdirAll(dir, 0777); err != nil {
+			if err != os.ErrExist {
+				return nil, errors.WithStack(err)
+			}
+		}
+	}
+	err := filepath.Walk(options.SegmentDir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -100,6 +105,13 @@ func Open(options Options) (*StreamStore, error) {
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(ss.segments, func(i, j int) bool {
+		return ss.segments[i].LastEntryID() < ss.segments[j].LastEntryID()
+	})
 
 	var lastEntryID uint64
 	for _, segment := range ss.segments {
@@ -110,6 +122,7 @@ func Open(options Options) (*StreamStore, error) {
 	}
 
 	ss.mtable = newMTable(ss.omap)
+	ss.appendMtable(ss.mtable)
 	ss.wg.Add(3)
 	ss.startWriteEntryRoutine()
 	ss.startFlushMTableRoutine()
@@ -118,7 +131,7 @@ func Open(options Options) (*StreamStore, error) {
 	var wg sync.WaitGroup
 	var reloadCount int64
 	var begin = time.Now()
-	wal.Reload(options.WalOptions, func(e streamstorepb.Entry) error {
+	ss.wal, err = wal.Reload(options.WalOptions, func(e streamstorepb.Entry) error {
 		if e.ID <= lastEntryID {
 			return nil
 		}
@@ -135,11 +148,31 @@ func Open(options Options) (*StreamStore, error) {
 		}
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 	wg.Wait()
 	logrus.Infof("reload wal success count %d take time %s", reloadCount, time.Since(begin))
 	return ss, nil
 }
 
+func (ss *StreamStore) AppendSync(streamID StreamID, data []byte) (offset int64, err error) {
+	ch := make(chan struct {
+		offset int64
+		err    error
+	})
+	ss.Append(streamID, data, func(offset int64, err error) {
+		ch <- struct {
+			offset int64
+			err    error
+		}{
+			offset: offset,
+			err:    err,
+		}
+	})
+	res := <-ch
+	return res.offset, res.err
+}
 func (ss *StreamStore) Append(streamID StreamID, data []byte, fn AppendCallbackFn) {
 	ss.wal.Write(streamstorepb.Entry{
 		StreamId: streamID,
@@ -194,7 +227,7 @@ const (
 func (ss *StreamStore) createSegment(mtable MTable) string {
 	begin := time.Now()
 	tempfile := filepath.Join(ss.Options.SegmentDir,
-		strconv.FormatUint(mtable.FirstEntryID(), 10)+segmentTempExt)
+		strconv.FormatUint(mtable.LastEntryID(), 10)+segmentTempExt)
 	f, err := os.Create(tempfile)
 	if err != nil {
 		logrus.WithError(err).Panicf("create file failed")
@@ -238,11 +271,11 @@ func (ss *StreamStore) clearFirstSegmentWithLock() {
 	logrus.WithField("filename", filename).Infof("clear segment file")
 }
 func (ss *StreamStore) clearSegments() {
-	ss.segmentLocker.RLock()
+	ss.segmentLocker.Lock()
 	defer ss.segmentLocker.Unlock()
 
 	for len(ss.segments) > 0 {
-		if time.Now().Sub(ss.segments[0].CreateTS()) > ss.Retention.Time {
+		if time.Since(ss.segments[0].CreateTS()) > ss.Retention.Time {
 			ss.clearFirstSegmentWithLock()
 			continue
 		}
@@ -268,6 +301,7 @@ func (ss *StreamStore) flushMTable(mtable MTable) {
 		logrus.Panicf("open segment failed %+v", err)
 	}
 	ss.updateSegments(segment)
+	ss.clearMTable()
 	ss.wal.ClearLogFiles(mtable.LastEntryID())
 	ss.clearSegments()
 }
@@ -284,15 +318,17 @@ func (ss *StreamStore) updateSegments(segment Segment) {
 	ss.segmentLocker.Lock()
 	ss.segments = append(ss.segments, segment)
 	ss.segmentLocker.Unlock()
+}
 
-	//remove mtable reduce memory using
+//clearMTable remove mtable reduce memory using
+func (ss *StreamStore) clearMTable() {
 	mTables := ss.getMtables()
-	if len(mTables) > ss.MaxMemTableSize {
-		newTables := append(append([]MTable{}, (mTables)[1:]...), ss.mtable)
+	if len(mTables) > ss.MaxMTables {
+		newTables := append([]MTable{}, (mTables)[1:]...)
 		ss.updateTables(newTables)
 	}
-
 }
+
 func (ss *StreamStore) startFlushMTableRoutine() {
 	go func() {
 		defer ss.wg.Done()
@@ -356,26 +392,24 @@ func (ss *StreamStore) startWriteEntryRoutine() {
 }
 
 func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader, error) {
+	mTables := ss.getMtables()
+	if i := SearchMTables(mTables, streamID, offset); i != -1 {
+		return mTables[i].NewReader(streamID)
+	}
+
 	ss.segmentLocker.RLock()
-	i := SearchSegments(ss.segments, streamID, offset)
-	if i != -1 {
+	if i := SearchSegments(ss.segments, streamID, offset); i != -1 {
 		segment := ss.segments[i]
 		ss.segmentLocker.RUnlock()
 		return segment.NewReader(streamID)
 	}
 	ss.segmentLocker.RUnlock()
-
-	mTables := ss.getMtables()
-	i = SearchMTables(mTables, streamID, offset)
-	if i != -1 {
-		return mTables[i].NewReader(streamID)
-	}
 	return nil, io.EOF
 }
 
 func (ss *StreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser, error) {
 	if _, ok := ss.omap.get(streamID); !ok {
-		return nil, errors.New("no find stream")
+		return nil, io.EOF
 	}
 	blockReader, err := ss.newReader(streamID, 0)
 	if err != nil {

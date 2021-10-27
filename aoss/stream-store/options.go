@@ -10,7 +10,7 @@ import (
 type Options struct {
 	WalOptions      wal.Options `json:"wal_options,omitempty"`
 	MaxMemTableSize int         `json:"max_mem_table_size,omitempty"`
-	MaxTables       int         `json:"max_tables,omitempty"`
+	MaxMTables      int         `json:"max_mtables,omitempty"`
 	SegmentDir      string      `json:"segment_dir,omitempty"`
 	Retention       struct {
 		Time time.Duration `json:"retention,omitempty"`
@@ -32,7 +32,7 @@ func DefaultOptionsWithDir(dir string) Options {
 			TruncateLast:  true,
 		},
 		MaxMemTableSize: 256 << 20,
-		MaxTables:       4,
+		MaxMTables:      4,
 		SegmentDir:      filepath.Join(dir, "segments"),
 		Retention: struct {
 			Time time.Duration `json:"retention,omitempty"`
