@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -304,4 +305,97 @@ func Test_mtable_Write(t *testing.T) {
 	_, err = reader.Read(make([]byte, 10))
 	assert.Equal(t, err, io.EOF)
 
+}
+
+func Test_mtable_WriteSegment(t *testing.T) {
+	rand.Seed(time.Now().Unix())
+	blockSize = 321
+	omap := newOffsetMap()
+	table := newMTable(omap)
+	data := make([]byte, 11111)
+	_, err := rand.Read(data)
+	assert.NoError(t, err)
+	var lastEntryID = rand.Uint64()
+	var firstEID = lastEntryID
+
+	var sCount = 2221
+
+	for i := 0; i < sCount; i++ {
+		omap.set(StreamID(i), int64(i))
+		wBuf := data
+		for len(wBuf) > 0 {
+			n := rand.Intn(len(wBuf) + 1)
+			buf := wBuf[:n]
+			wBuf = wBuf[n:]
+			table.Write(streamstorepb.Entry{
+				StreamId: StreamID(i),
+				Data:     buf,
+				ID:       uint64(lastEntryID),
+			})
+			lastEntryID++
+		}
+		offset, ok := table.Offset(StreamID(i))
+		assert.True(t, ok)
+		assert.Equal(t, offset.From, int64(i))
+		assert.Equal(t, offset.To, int64(i+len(data)))
+	}
+
+	assert.Equal(t, table.FirstEntryID(), uint64(firstEID))
+	assert.Equal(t, table.LastEntryID(), lastEntryID-1)
+
+	f, err := os.CreateTemp("", "segment")
+	t.Cleanup(func() {
+		f.Close()
+		os.Remove(f.Name())
+	})
+
+	assert.NoError(t, table.WriteToSegment(f))
+	assert.NoError(t, f.Sync())
+
+	sf, err := os.Open(f.Name())
+	assert.NoError(t, err)
+	assert.NotNil(t, sf)
+
+	segment, err := newSegment(sf)
+	assert.NoError(t, err)
+
+	assert.True(t, time.Now().After(segment.CreateTS()), time.Now().Sub(segment.CreateTS()) < time.Second)
+
+	assert.Equal(t, segment.FirstEntryID(), table.FirstEntryID())
+	assert.Equal(t, segment.LastEntryID(), table.LastEntryID())
+
+	assert.True(t, segment.Size() > int64(table.Size()))
+
+	for _, offset := range segment.GetStreamOffsets() {
+		assert.Equal(t, int(offset.From), int(offset.StreamID))
+		assert.Equal(t, int(offset.To), int(offset.StreamID)+len(data))
+
+		reader, err := segment.NewReader(offset.StreamID)
+		assert.NoError(t, err)
+
+		buffer := make([]byte, len(data))
+		_, err = io.ReadFull(reader, buffer)
+		assert.NoError(t, err)
+
+		assert.True(t, bytes.Compare(buffer, data) == 0)
+
+		_, err = reader.Read(make([]byte, 1))
+		assert.Equal(t, err, io.EOF)
+
+		randOffset := rand.Intn(len(data))
+
+		seekOffset := offset.From + int64(randOffset)
+		n, err := reader.Seek(seekOffset, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, seekOffset, n)
+
+		all, err := io.ReadAll(reader)
+		assert.NoError(t, err)
+		assert.Equal(t, len(all), len(data)-randOffset)
+		assert.True(t, bytes.Compare(all, data[randOffset:]) == 0)
+	}
+	assert.Equal(t, len(segment.GetStreamOffsets()), sCount)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, f)
 }

@@ -27,23 +27,24 @@ func (reader *segmentReader) Offset() (begin int64, end int64) {
 }
 
 func (reader *segmentReader) Seek(offset int64, whence int) (int64, error) {
-	newOffset := offset
 	if whence == io.SeekStart {
 
 	} else if whence == io.SeekCurrent {
-		newOffset = reader.offset + offset
+		offset += reader.offset
 	} else if whence == io.SeekEnd {
 		return 0, errors.New("segment block reader no support Seek from end of stream")
 	} else {
 		return 0, errors.New("`Seek` argument error")
 	}
-
-	if newOffset < reader.soffset.From {
-		return 0, errors.WithStack(ErrOutOfOffsetRangeBegin)
+	if offset < reader.soffset.From {
+		return 0, errSeekInvalidOffset
 	}
-
-	reader.offset = newOffset
-	return newOffset, nil
+	reader.offset = offset
+	_, err := reader.f.Seek(offset-reader.soffset.From+reader.soffset.Offset, 0)
+	if err != nil {
+		return 0, errors.WithStack(err)
+	}
+	return reader.offset, nil
 }
 
 func (reader *segmentReader) Read(p []byte) (n int, err error) {
@@ -51,7 +52,7 @@ func (reader *segmentReader) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 	remain := reader.soffset.To - reader.offset
-	if int(remain) > len(p) {
+	if int(remain) < len(p) {
 		p = p[:remain]
 	}
 	n, err = reader.f.Read(p)
@@ -61,5 +62,6 @@ func (reader *segmentReader) Read(p []byte) (n int, err error) {
 		}
 		return 0, errors.WithStack(err)
 	}
+	reader.offset += int64(n)
 	return
 }

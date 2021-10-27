@@ -116,7 +116,7 @@ func (s *segment) NewReader(streamID StreamID) (SectionReader, error) {
 	}
 	return &segmentReader{
 		soffset: offset,
-		offset:  offset.Offset,
+		offset:  offset.From,
 		f:       newFile,
 	}, nil
 }
