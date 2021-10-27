@@ -286,10 +286,10 @@ func (ss *StreamStore) updateSegments(segment Segment) {
 	ss.segmentLocker.Unlock()
 
 	//remove mtable reduce memory using
-	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
-	if len(*mTables) > ss.MaxMemTableSize {
-		newTables := append(append([]MTable{}, (*mTables)[1:]...), ss.mtable)
-		atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&newTables))
+	mTables := ss.getMtables()
+	if len(mTables) > ss.MaxMemTableSize {
+		newTables := append(append([]MTable{}, (mTables)[1:]...), ss.mtable)
+		ss.updateTables(newTables)
 	}
 
 }
@@ -314,6 +314,18 @@ func (ss *StreamStore) asyncFlushMtable(mtable MTable) {
 	}
 }
 
+func (ss *StreamStore) updateTables(tables []MTable) {
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&tables))
+}
+func (ss *StreamStore) getMtables() []MTable {
+	return *(*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
+}
+func (ss *StreamStore) appendMtable(mtable MTable) {
+	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
+	newTables := append(append([]MTable{}, *mTables...), mtable)
+	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&newTables))
+}
+
 func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 	offset := ss.mtable.Write(entry.entry)
 	ss.omap.set(entry.entry.StreamId, offset)
@@ -322,11 +334,7 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 	}
 	unmutTable := ss.mtable
 	ss.mtable = newMTable(ss.omap)
-
-	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
-	newTables := append(append([]MTable{}, *mTables...), ss.mtable)
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&newTables))
-
+	ss.appendMtable(ss.mtable)
 	ss.asyncFlushMtable(unmutTable)
 	return offset
 }
@@ -357,7 +365,7 @@ func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader
 	}
 	ss.segmentLocker.RUnlock()
 
-	mTables := *(*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
+	mTables := ss.getMtables()
 	i = SearchMTables(mTables, streamID, offset)
 	if i != -1 {
 		return mTables[i].NewReader(streamID)
@@ -382,7 +390,7 @@ func (ss *StreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser, error) {
 	}, nil
 }
 
-func (ss *StreamStore) Closer() error {
+func (ss *StreamStore) Close() error {
 	if err := ss.wal.Close(); err != nil {
 		return err
 	}
@@ -393,6 +401,6 @@ func (ss *StreamStore) Closer() error {
 			return err
 		}
 	}
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&[]MTable{}))
+	ss.updateTables([]MTable{})
 	return nil
 }
