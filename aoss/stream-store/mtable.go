@@ -26,8 +26,6 @@ type MTable interface {
 	//flush to segment
 	WriteToSegment(wser io.WriteSeeker) error
 
-	SetUnmutable()
-
 	NewReader(streamID StreamID) (SectionReader, error)
 }
 
@@ -38,13 +36,13 @@ type chunk struct {
 }
 
 type Chunks struct {
-	disableRWLocker
+	sync.RWMutex
 	StreamOffset
 	chunks []*chunk
 }
 
 type mtable struct {
-	disableRWLocker
+	sync.RWMutex
 	size         int
 	omap         OffsetMap
 	fristEntryID uint64
@@ -180,13 +178,6 @@ func (m *mtable) Size() int {
 	return m.size
 }
 
-func (m *mtable) SetUnmutable() {
-	m.Disable()
-	for _, blocks := range m.chunksMap {
-		blocks.Disable()
-	}
-}
-
 func (m *mtable) WriteToSegment(ws io.WriteSeeker) error {
 	if _, err := ws.Write(make([]byte, 4)); err != nil {
 		return errors.WithStack(err)
@@ -242,36 +233,4 @@ func (m *mtable) NewReader(streamID StreamID) (SectionReader, error) {
 		chunks: bs,
 		offset: bs.From,
 	}, nil
-}
-
-type disableRWLocker struct {
-	mtx     sync.RWMutex
-	disable bool
-}
-
-func (m *disableRWLocker) RLock() {
-	if !m.disable {
-		m.mtx.RLock()
-	}
-}
-
-func (m *disableRWLocker) RUnlock() {
-	if !m.disable {
-		m.mtx.RUnlock()
-	}
-}
-func (m *disableRWLocker) Lock() {
-	if !m.disable {
-		m.mtx.Lock()
-	}
-}
-func (m *disableRWLocker) Unlock() {
-	if !m.disable {
-		m.mtx.Unlock()
-	}
-}
-func (m *disableRWLocker) Disable() {
-	m.mtx.Lock()
-	m.disable = true
-	m.mtx.Unlock()
 }

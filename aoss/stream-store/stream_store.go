@@ -262,7 +262,6 @@ func (ss *StreamStore) clearSegments() {
 	}
 }
 func (ss *StreamStore) flushMTable(mtable MTable) {
-	mtable.SetUnmutable()
 	filename := ss.createSegment(mtable)
 	segment, err := ss.openSegment(filename)
 	if err != nil {
