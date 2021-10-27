@@ -321,7 +321,6 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 		return offset
 	}
 	unmutTable := ss.mtable
-	unmutTable.SetUnmutable()
 	ss.mtable = newMTable(ss.omap)
 
 	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
