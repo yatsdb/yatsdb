@@ -59,6 +59,9 @@ type StreamStore struct {
 type AppendCallbackFn = func(offset int64, err error)
 
 func Open(options Options) (*StreamStore, error) {
+	if options.CallbackRoutines == 0 {
+		options.CallbackRoutines = 1
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var ss = &StreamStore{
 		Options:       options,
@@ -126,7 +129,9 @@ func Open(options Options) (*StreamStore, error) {
 	ss.wg.Add(3)
 	ss.startWriteEntryRoutine()
 	ss.startFlushMTableRoutine()
-	ss.startCallbackRoutine()
+	for i := 0; i < ss.CallbackRoutines; i++ {
+		ss.startCallbackRoutine()
+	}
 
 	var wg sync.WaitGroup
 	var reloadCount int64

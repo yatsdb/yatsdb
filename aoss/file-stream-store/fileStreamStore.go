@@ -23,9 +23,9 @@ type fileStream struct {
 }
 
 type FileStreamStoreOptions struct {
-	Dir            string
-	SyncWrite      bool
-	WriteGorutines int
+	Dir            string `yaml:"dir,omitempty"`
+	SyncWrite      bool   `yaml:"sync_write,omitempty"`
+	WriteGorutines int    `yaml:"write_gorutines,omitempty"`
 }
 
 type FileStreamStore struct {

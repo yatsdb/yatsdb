@@ -1,4 +1,4 @@
 
 
 build:
-	@go build -o bin/yatsdb cmd/main.go
+	@go build -o bin/yatsdb cmd/*
