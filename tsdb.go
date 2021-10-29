@@ -20,6 +20,7 @@ import (
 	streamstore "github.com/yatsdb/yatsdb/aoss/stream-store"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
 )
 
@@ -158,7 +159,9 @@ func OpenTSDB(options Options) (TSDB, error) {
 		offsetIndexUpdater:   offsetDB,
 		readPipelines:        make(chan interface{}, options.ReadGorutines),
 	}
-
+	if options.Registerer != nil {
+		metrics.MustRegister(options.Registerer)
+	}
 	return tsdb, nil
 }
 
@@ -170,15 +173,20 @@ func JS(obj interface{}) string {
 func (tsdb *tsdb) ReadSamples(ctx context.Context, req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
 	var response prompb.ReadResponse
 	var wg sync.WaitGroup
+	metrics.ReadRequestCounter.Inc()
 	begin := time.Now()
 	for _, query := range req.Queries {
 		streamMetrics, err := tsdb.streamMetricQuerier.QueryStreamMetric(query)
 		if err != nil {
 			return nil, err
 		}
-		logrus.WithField("take time", time.Since(begin)).
-			WithField("metrics count", len(streamMetrics)).
-			Infof("QueryStreamMetric success")
+		metrics.ReadSeriesCounter.Add(float64(len(streamMetrics)))
+
+		logrus.WithFields(logrus.Fields{
+			"take_time":     time.Since(begin),
+			"metrics_count": len(streamMetrics),
+		}).Info("queryStreamMetric success")
+
 		var QueryResult prompb.QueryResult
 		for _, streamMetric := range streamMetrics {
 			//logrus.WithField("metric", streamMetric.ToPromString()).Infof("start read metrics")
@@ -197,7 +205,7 @@ func (tsdb *tsdb) ReadSamples(ctx context.Context, req *prompb.ReadRequest) (*pr
 				}()
 				it, err := tsdb.metricStreamReader.CreateSampleSampleIterator(streamMetric)
 				if err != nil {
-					logrus.Errorf("createStreamReader failed %+v", err)
+					logrus.WithError(err).Error("createStreamReader failed")
 					return
 				}
 				timeSeries.Labels = append(timeSeries.Labels, streamMetric.Labels...)
@@ -214,6 +222,7 @@ func (tsdb *tsdb) ReadSamples(ctx context.Context, req *prompb.ReadRequest) (*pr
 					}
 					timeSeries.Samples = append(timeSeries.Samples, sample)
 				}
+				metrics.ReadSampleCounter.Add(float64(len(timeSeries.Samples)))
 			}(streamMetric)
 		}
 		response.Results = append(response.Results, &QueryResult)
@@ -238,7 +247,10 @@ func toLabels(pLabels []prompb.Label) labels.Labels {
 func (tsdb *tsdb) WriteSamples(request *prompb.WriteRequest) error {
 	var wg sync.WaitGroup
 	var errs = make(chan error, 1)
+	metrics.WriteRequestCounter.Inc()
 	for _, timeSeries := range request.Timeseries {
+		metrics.WriteSeriesCounter.Inc()
+		metrics.WriteSampleCounter.Add(float64(len(timeSeries.Samples)))
 		la := toLabels(timeSeries.Labels)
 		streamID := StreamID(la.Hash())
 		if err := tsdb.invertedIndexUpdater.Insert(invertedindex.StreamMetric{

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 	streamstore "github.com/yatsdb/yatsdb/aoss/stream-store"
 	"gopkg.in/yaml.v3"
@@ -20,6 +21,8 @@ type Options struct {
 		DumpReadRequestResponse bool `yaml:"dump_read_request_response"`
 		LogWriteStat            bool `yaml:"log_write_stat"`
 	} `yaml:"debug"`
+
+	Registerer prometheus.Registerer `yaml:"-"`
 }
 
 //DefaultOptions return default options with store path
@@ -29,6 +32,14 @@ func DefaultOptions(path string) Options {
 		EnableStreamStore:  true,
 		ReadGorutines:      128,
 		StreamStoreOptions: streamstore.DefaultOptionsWithDir(path),
+		Registerer:         prometheus.DefaultRegisterer,
+		Debug: struct {
+			DumpReadRequestResponse bool `yaml:"dump_read_request_response"`
+			LogWriteStat            bool `yaml:"log_write_stat"`
+		}{
+			DumpReadRequestResponse: false,
+			LogWriteStat:            false,
+		},
 		FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
 			Dir:            filepath.Join(path, "filestreamstore"),
 			SyncWrite:      false,

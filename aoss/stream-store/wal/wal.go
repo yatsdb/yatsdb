@@ -12,6 +12,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 )
 
 type Wal interface {
@@ -70,6 +71,13 @@ func (wal *wal) Close() error {
 	wal.wg.Wait()
 	return nil
 }
+
+func (wal *wal) getLogFiles() int {
+	wal.logFilesLocker.Lock()
+	defer wal.logFilesLocker.Unlock()
+	return len(wal.logFiles)
+}
+
 func (wal *wal) ClearLogFiles(ID uint64) {
 	wal.logFilesLocker.Lock()
 	defer wal.logFilesLocker.Unlock()
@@ -88,6 +96,7 @@ func (wal *wal) ClearLogFiles(ID uint64) {
 				WithField("last entry ID", lf.GetLastEntryID()).
 				Infof("delete log success")
 			index = i + 1
+			metrics.WalDeleteLogCounter.Inc()
 		} else {
 			logrus.WithField("i", i).
 				WithField("filename", lf.Filename()).
@@ -262,6 +271,7 @@ func (wal *wal) CreateLogFile() (LogFile, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
+	metrics.WalCreateLogCounter.Inc()
 	return initLogFile(f, 0, 0)
 }
 func (wal *wal) startCreatLogFileRoutine() {

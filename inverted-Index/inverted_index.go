@@ -10,10 +10,12 @@ import (
 	"github.com/dgraph-io/badger/v3"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 )
 
 var (
@@ -68,11 +70,31 @@ func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) (*Bad
 	if err := reloadStreamIDs(db, cache); err != nil {
 		return nil, err
 	}
+	metricsCache := gocache.New(time.Minute*10, time.Minute*5)
+
+	metrics.StreamIDCacheCount = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "inverted_index",
+		Name:      "streamID_cache_entry_count",
+		Help:      "total of yatsdb inverted-index streamID cache entry size",
+	}, func() float64 {
+		return float64(cache.EntryCount())
+	})
+
+	metrics.StreamMetricsCacheCount = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "inverted_index",
+		Name:      "metrics_cache_entry_count",
+		Help:      "total of yatsdb inverted-index metrics cache entry size",
+	}, func() float64 {
+		return float64(metricsCache.ItemCount())
+	})
+
 	return &BadgerIndex{
 		db:           db,
 		batcher:      batcher,
 		idCache:      cache,
-		metricsCache: gocache.New(time.Minute*10, time.Minute*5),
+		metricsCache: metricsCache,
 	}, nil
 }
 
@@ -100,6 +122,7 @@ func (index *BadgerIndex) loadOrStoreStreamID(ID StreamID) bool {
 	if err != nil {
 		index.idCache.SetInt(int64(ID), streamIDCacheVal, 300)
 	}
+
 	return err == nil
 }
 
