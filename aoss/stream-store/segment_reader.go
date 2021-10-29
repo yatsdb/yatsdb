@@ -2,7 +2,6 @@ package streamstore
 
 import (
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
@@ -11,17 +10,11 @@ import (
 var _ SectionReader = (*segmentReader)(nil)
 
 type segmentReader struct {
+	*segment
 	soffset streamstorepb.StreamOffset
-	f       *os.File
 	offset  int64
 }
 
-func (reader *segmentReader) Close() error {
-	if err := reader.f.Close(); err != nil {
-		return errors.WithStack(err)
-	}
-	return nil
-}
 func (reader *segmentReader) Offset() (begin int64, end int64) {
 	return reader.soffset.From, reader.soffset.To
 }
@@ -55,7 +48,7 @@ func (reader *segmentReader) Read(p []byte) (n int, err error) {
 	if int(remain) < len(p) {
 		p = p[:remain]
 	}
-	n, err = reader.f.Read(p)
+	n, err = reader.f.ReadAt(p, reader.offset-reader.soffset.From+reader.soffset.Offset)
 	if err != nil {
 		if err == io.EOF {
 			return
