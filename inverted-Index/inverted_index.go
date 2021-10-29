@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"sync"
 	"time"
 
+	"github.com/coocood/freecache"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/pkg/labels"
@@ -35,13 +35,14 @@ type DB interface {
 }
 
 type BadgerIndex struct {
-	db              *badger.DB
-	batcher         *badgerbatcher.BadgerDBBatcher
-	streamIDsLocker *sync.Mutex
-	streamIDs       map[StreamID]bool
+	db      *badger.DB
+	batcher *badgerbatcher.BadgerDBBatcher
+	cache   *freecache.Cache
 }
 
-func reloadStreamIDs(db *badger.DB, streamIDs map[StreamID]bool) error {
+var streamIDCacheVal = []byte("O")
+
+func reloadStreamIDs(db *badger.DB, cache *freecache.Cache) error {
 	return db.View(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
 		opts.PrefetchValues = false
@@ -54,22 +55,21 @@ func reloadStreamIDs(db *badger.DB, streamIDs map[StreamID]bool) error {
 				return errors.New("metric key format error")
 			}
 			ID := StreamID(binary.BigEndian.Uint64(key[len(metricKeyPrefix):]))
-			streamIDs[ID] = true
+			cache.SetInt(int64(ID), streamIDCacheVal, 300)
 		}
 		return nil
 	})
 }
 
 func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) (*BadgerIndex, error) {
-	streamIDs := make(map[StreamID]bool, 1024)
-	if err := reloadStreamIDs(db, streamIDs); err != nil {
+	cache := freecache.NewCache(32 << 20) //30MB
+	if err := reloadStreamIDs(db, cache); err != nil {
 		return nil, err
 	}
 	return &BadgerIndex{
-		db:              db,
-		batcher:         batcher,
-		streamIDsLocker: &sync.Mutex{},
-		streamIDs:       streamIDs,
+		db:      db,
+		batcher: batcher,
+		cache:   cache,
 	}, nil
 }
 
@@ -78,8 +78,8 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	streamIDs := make(map[StreamID]bool, 1024)
-	if err := reloadStreamIDs(db, streamIDs); err != nil {
+	cache := freecache.NewCache(32 << 20) //30MB
+	if err := reloadStreamIDs(db, cache); err != nil {
 		return nil, err
 	}
 	go func() {
@@ -93,21 +93,18 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 		}
 	}()
 	return &BadgerIndex{
-		db:              db,
-		batcher:         badgerbatcher.NewBadgerDBBatcher(ctx, 32, db).Start(),
-		streamIDsLocker: &sync.Mutex{},
-		streamIDs:       streamIDs,
+		db:      db,
+		batcher: badgerbatcher.NewBadgerDBBatcher(ctx, 32, db).Start(),
+		cache:   cache,
 	}, nil
 }
 
 func (index *BadgerIndex) loadOrStoreStreamID(ID StreamID) bool {
-	index.streamIDsLocker.Lock()
-	_, ok := index.streamIDs[ID]
-	if !ok {
-		index.streamIDs[ID] = true
+	_, err := index.cache.GetInt(int64(ID))
+	if err != nil {
+		index.cache.SetInt(int64(ID), streamIDCacheVal, 300)
 	}
-	index.streamIDsLocker.Unlock()
-	return ok
+	return err == nil
 }
 
 /*

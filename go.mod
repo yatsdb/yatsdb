@@ -3,6 +3,7 @@ module github.com/yatsdb/yatsdb
 go 1.15
 
 require (
+	github.com/coocood/freecache v1.1.1 // indirect
 	github.com/dgraph-io/badger/v3 v3.2103.1
 	github.com/dustin/go-humanize v1.0.0
 	github.com/gogo/protobuf v1.3.2
