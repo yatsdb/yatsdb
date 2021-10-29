@@ -165,16 +165,9 @@ func JS(obj interface{}) string {
 
 func (tsdb *tsdb) ReadSamples(ctx context.Context, req *prompb.ReadRequest) (*prompb.ReadResponse, error) {
 	var response prompb.ReadResponse
-	var closers []io.Closer
-	defer func() {
-		for _, closer := range closers {
-			_ = closer.Close()
-		}
-	}()
-
 	var wg sync.WaitGroup
+	begin := time.Now()
 	for _, query := range req.Queries {
-		begin := time.Now()
 		streamMetrics, err := tsdb.streamMetricQuerier.QueryStreamMetric(query)
 		if err != nil {
 			return nil, err
@@ -184,8 +177,7 @@ func (tsdb *tsdb) ReadSamples(ctx context.Context, req *prompb.ReadRequest) (*pr
 			Infof("QueryStreamMetric success")
 		var QueryResult prompb.QueryResult
 		for _, streamMetric := range streamMetrics {
-			logrus.WithField("metric", streamMetric.ToPromString()).Infof("start read metrics")
-
+			//logrus.WithField("metric", streamMetric.ToPromString()).Infof("start read metrics")
 			var timeSeries prompb.TimeSeries
 			QueryResult.Timeseries = append(QueryResult.Timeseries, &timeSeries)
 			select {
@@ -204,13 +196,15 @@ func (tsdb *tsdb) ReadSamples(ctx context.Context, req *prompb.ReadRequest) (*pr
 					logrus.Errorf("createStreamReader failed %+v", err)
 					return
 				}
-				closers = append(closers, it)
 				timeSeries.Labels = append(timeSeries.Labels, streamMetric.Labels...)
 				for {
 					sample, err := it.Next()
 					if err != nil {
 						if err != io.EOF {
 							logrus.Errorf("get sample error %+v", err)
+						}
+						if err := it.Close(); err != nil {
+							logrus.WithError(err).Warnf("close SampleSampleIterator failed")
 						}
 						break
 					}
