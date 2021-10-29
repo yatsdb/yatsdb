@@ -37,6 +37,9 @@ func (d *decoder) Decode() (streamstorepb.EntryTyper, error) {
 	var size = binary.BigEndian.Uint32(sizeBuffer[:4])
 	var buffer = make([]byte, size)
 	if _, err := io.ReadFull(d, buffer[:]); err != nil {
+		if err == io.ErrUnexpectedEOF {
+			return nil, err
+		}
 		return nil, errors.WithStack(err)
 	}
 	entryTyper := streamstorepb.NewEntryTyper(sizeBuffer[4])
