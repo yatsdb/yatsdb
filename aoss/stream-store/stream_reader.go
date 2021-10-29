@@ -55,7 +55,10 @@ func (reader *streamReader) Read(p []byte) (n int, err error) {
 		if err != nil {
 			return 0, err
 		}
-		if _, err := reader.sectionReader.Seek(reader.offset, 0); err != nil {
+		if from, _ := reader.sectionReader.Offset(); reader.offset < from {
+			//data before offset is delete
+			reader.offset = from
+		} else if _, err := reader.sectionReader.Seek(reader.offset, 0); err != nil {
 			return 0, err
 		}
 	}

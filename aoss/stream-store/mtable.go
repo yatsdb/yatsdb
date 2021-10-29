@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -23,10 +24,28 @@ type MTable interface {
 	Write(streamstorepb.Entry) (offset int64)
 	//table size
 	Size() int
+	ChunkAllocSize() int
 	//flush to segment
 	WriteToSegment(wser io.WriteSeeker) error
 
 	NewReader(streamID StreamID) (SectionReader, error)
+
+	StreamCount() int
+}
+
+type chunkMemAlloc struct {
+	bytes []byte
+}
+
+func (alloc *chunkMemAlloc) Alloc(size int) []byte {
+	if len(alloc.bytes) > size {
+		buf := alloc.bytes[:size]
+		alloc.bytes = alloc.bytes[size:]
+		return buf
+	} else {
+		alloc.bytes = make([]byte, 64*1024*1024)
+		return alloc.Alloc(size)
+	}
 }
 
 type chunk struct {
@@ -38,7 +57,7 @@ type chunk struct {
 type Chunks struct {
 	sync.RWMutex
 	StreamOffset
-	chunks []*chunk
+	chunks []chunk
 }
 
 type mtable struct {
@@ -50,7 +69,7 @@ type mtable struct {
 	chunksMap    map[StreamID]*Chunks
 }
 
-var blockSize = 4 * 1024
+var blockSize = 128
 
 func (b *Chunks) WriteTo(w io.Writer) (n int64, err error) {
 	b.RLock()
@@ -64,18 +83,24 @@ func (b *Chunks) WriteTo(w io.Writer) (n int64, err error) {
 	b.RUnlock()
 	return
 }
+func (b *Chunks) Offset() (from int64, to int64) {
+	from = b.From
+	to = atomic.LoadInt64(&b.To)
+	return
+}
 func (b *Chunks) Write(data []byte) int64 {
+	dataLen := len(data)
 	b.Lock()
 	if b.chunks == nil {
-		b.chunks = append(b.chunks, &chunk{
+		b.chunks = append(b.chunks, chunk{
 			begin: b.From,
 			buf:   make([]byte, blockSize),
 		})
 	}
 	for len(data) > 0 {
-		last := b.chunks[len(b.chunks)-1]
+		last := &b.chunks[len(b.chunks)-1]
 		if len(last.buf) == int(last.offset) {
-			b.chunks = append(b.chunks, &chunk{
+			b.chunks = append(b.chunks, chunk{
 				begin: b.To,
 				buf:   make([]byte, blockSize),
 			})
@@ -83,10 +108,10 @@ func (b *Chunks) Write(data []byte) int64 {
 		}
 		n := copy(last.buf[last.offset:], data)
 		data = data[n:]
-		b.To += int64(n)
 		last.offset += n
 	}
 	b.Unlock()
+	atomic.AddInt64(&b.To, int64(dataLen))
 	return b.To
 }
 
@@ -136,9 +161,12 @@ func newMTable(omap OffsetMap) MTable {
 
 //return stream range [from ,to)
 func (m *mtable) Offset(streamID StreamID) (StreamOffset, bool) {
+	m.Lock()
 	if blocks, ok := m.chunksMap[streamID]; ok {
+		m.Unlock()
 		return blocks.StreamOffset, true
 	}
+	m.Unlock()
 	return StreamOffset{}, false
 }
 
@@ -219,6 +247,22 @@ func (m *mtable) WriteToSegment(ws io.WriteSeeker) error {
 		return errors.WithStack(err)
 	}
 	return nil
+}
+
+func (m *mtable) ChunkAllocSize() int {
+	m.RLock()
+	defer m.RUnlock()
+	var size int
+	for _, chunks := range m.chunksMap {
+		size += len(chunks.chunks) * blockSize
+	}
+	return size
+}
+
+func (m *mtable) StreamCount() int {
+	m.RLock()
+	defer m.RUnlock()
+	return len(m.chunksMap)
 }
 
 func (m *mtable) NewReader(streamID StreamID) (SectionReader, error) {

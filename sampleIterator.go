@@ -1,8 +1,10 @@
 package yatsdb
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/prompb"
@@ -15,7 +17,8 @@ type metricSampleIteratorCreater struct {
 
 type sampleIterator struct {
 	offset *StreamMetricOffset
-	reader io.ReadSeekCloser
+	closer io.Closer
+	reader io.Reader
 }
 
 func (creator *metricSampleIteratorCreater) CreateSampleSampleIterator(StreamMetric *StreamMetricOffset) (SampleIterator, error) {
@@ -29,11 +32,16 @@ func (creator *metricSampleIteratorCreater) CreateSampleSampleIterator(StreamMet
 	}
 	return &sampleIterator{
 		offset: StreamMetric,
-		reader: reader,
+		closer: reader,
+		reader: bufio.NewReaderSize(reader, 64*1024),
 	}, nil
 }
 
+var iterLocker sync.Mutex
+
 func (si *sampleIterator) Next() (prompb.Sample, error) {
+	iterLocker.Lock()
+	defer iterLocker.Unlock()
 	for {
 		var sample prompb.Sample
 		var sizeBuffer [2]byte
@@ -69,5 +77,5 @@ func (si *sampleIterator) Next() (prompb.Sample, error) {
 }
 
 func (sampleIterator *sampleIterator) Close() error {
-	return sampleIterator.reader.Close()
+	return sampleIterator.closer.Close()
 }

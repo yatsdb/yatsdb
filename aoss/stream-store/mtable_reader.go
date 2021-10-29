@@ -17,7 +17,7 @@ func (reader *mtableReader) Close() error {
 	return nil
 }
 func (reader *mtableReader) Offset() (begin int64, end int64) {
-	return reader.chunks.From, reader.chunks.To
+	return reader.chunks.Offset()
 }
 
 var errSeekInvalidOffset = errors.New("Seek: invalid offset")

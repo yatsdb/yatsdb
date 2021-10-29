@@ -2,10 +2,11 @@ package streamstore
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
-	"syscall"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -33,6 +34,8 @@ type segment struct {
 	f      *os.File
 	//streambaseOffset head size
 	streambaseOffset int64
+
+	ref int32
 }
 
 var _ Segment = (*segment)(nil)
@@ -61,6 +64,7 @@ func newSegment(f *os.File) (*segment, error) {
 		footer:           header,
 		f:                f,
 		streambaseOffset: 4,
+		ref:              1,
 	}, nil
 }
 
@@ -105,19 +109,20 @@ func (s *segment) NewReader(streamID StreamID) (SectionReader, error) {
 	if !ok {
 		return nil, errors.New("no find streamID in segment")
 	}
-	fd, err := syscall.Dup(int(s.f.Fd()))
-	if err != nil {
-		return nil, errors.WithMessage(err, "dup file failed")
-	}
-	newFile := os.NewFile(uintptr(fd), s.f.Name())
-	if _, err := newFile.Seek(offset.Offset, 0); err != nil {
-		_ = newFile.Close()
-		return nil, errors.WithMessage(err, "seek failed")
+	//inc ref+1
+	for {
+		ref := atomic.LoadInt32(&s.ref)
+		if ref <= 0 {
+			return nil, fmt.Errorf("segment is closed")
+		}
+		if atomic.CompareAndSwapInt32(&s.ref, ref, ref+1) {
+			break
+		}
 	}
 	return &segmentReader{
+		segment: s,
 		soffset: offset,
 		offset:  offset.From,
-		f:       newFile,
 	}, nil
 }
 
@@ -134,6 +139,18 @@ func (s *segment) Filename() string {
 }
 
 func (s *segment) Close() error {
+	for {
+		ret := atomic.LoadInt32(&s.ref)
+		if ret <= 0 {
+			panic("ref error")
+		}
+		if atomic.CompareAndSwapInt32(&s.ref, ret, ret-1) {
+			if ret-1 > 0 {
+				return nil
+			}
+			break
+		}
+	}
 	if err := s.f.Close(); err != nil {
 		return errors.WithStack(err)
 	}

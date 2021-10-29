@@ -3,6 +3,7 @@ package ssoffsetindex
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 	"time"
 
 	"github.com/dgraph-io/badger/v3"
@@ -39,6 +40,9 @@ type OffsetDB interface {
 type SeriesStreamOffsetIndex struct {
 	db      *badger.DB
 	batcher *badgerbatcher.BadgerDBBatcher
+
+	streamLastTSMapLocker sync.Mutex
+	streamLastTSMap       map[StreamID]int64
 }
 
 const (
@@ -48,8 +52,10 @@ const (
 
 func NewSeriesStreamOffsetIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) *SeriesStreamOffsetIndex {
 	return &SeriesStreamOffsetIndex{
-		db:      db,
-		batcher: batcher,
+		db:                    db,
+		batcher:               batcher,
+		streamLastTSMapLocker: sync.Mutex{},
+		streamLastTSMap:       map[invertedindex.StreamID]int64{},
 	}
 }
 
@@ -93,6 +99,8 @@ func (index *SeriesStreamOffsetIndex) GetStreamTimestampOffset(streamID StreamID
 		opts := badger.DefaultIteratorOptions
 		opts.Prefix = key[:offsetPrefixLen+8]
 		opts.Reverse = LE
+		opts.PrefetchSize = 0
+		opts.PrefetchValues = false
 
 		iter := txn.NewIterator(opts)
 		defer iter.Close()
@@ -125,6 +133,17 @@ func (index *SeriesStreamOffsetIndex) GetStreamTimestampOffset(streamID StreamID
 }
 
 func (index *SeriesStreamOffsetIndex) SetStreamTimestampOffset(offset SeriesStreamOffset, fn func(err error)) {
+	var update = false
+	index.streamLastTSMapLocker.Lock()
+	if (offset.TimestampMS - index.streamLastTSMap[offset.StreamID]) > 1000*300 {
+		index.streamLastTSMap[offset.StreamID] = offset.TimestampMS
+		update = true
+	}
+	index.streamLastTSMapLocker.Unlock()
+	if !update {
+		fn(nil)
+		return
+	}
 	index.batcher.Update(badgerbatcher.BadgerOP{
 		Op: func(txn *badger.Txn) error {
 			keyBuffer := make([]byte, 16+offsetPrefixLen)
