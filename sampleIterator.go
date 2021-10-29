@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
-	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/prompb"
@@ -37,11 +36,7 @@ func (creator *metricSampleIteratorCreater) CreateSampleSampleIterator(StreamMet
 	}, nil
 }
 
-var iterLocker sync.Mutex
-
 func (si *sampleIterator) Next() (prompb.Sample, error) {
-	iterLocker.Lock()
-	defer iterLocker.Unlock()
 	for {
 		var sample prompb.Sample
 		var sizeBuffer [2]byte
