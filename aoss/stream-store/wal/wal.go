@@ -3,7 +3,6 @@ package wal
 import (
 	"context"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -179,11 +178,11 @@ func (wal *wal) startWriteEntryGoroutine() {
 	wal.wg.Add(1)
 	go func() {
 		defer wal.wg.Done()
-		var encoder = newEncoder(nil)
 		file, err := wal.getLogFile()
 		if err != nil {
 			logrus.Panicf("get log file failed %+v", err)
 		}
+		var encoder = newEncoder(file)
 		for {
 			var entries []Entry
 			select {
@@ -214,7 +213,6 @@ func (wal *wal) startWriteEntryGoroutine() {
 			}
 
 			file.SetFirstEntryID(batch.Entries[0].ID)
-			encoder.Reset(file)
 			if err := encoder.Encode(&batch); err != nil {
 				logrus.Panicf("encode entries failed %+v", err)
 				continue
@@ -232,6 +230,7 @@ func (wal *wal) startWriteEntryGoroutine() {
 
 			if file.Size() > wal.MaxLogSize {
 				file.SetLastEntryID(batch.Entries[len(batch.Entries)-1].ID)
+				filename := file.Filename()
 				if err := file.Rename(); err != nil {
 					logrus.Panicf("rename wal failed %+v", err)
 				}
@@ -243,6 +242,10 @@ func (wal *wal) startWriteEntryGoroutine() {
 					}
 					logrus.Panicf("get next log file failed %+v", err)
 				}
+				encoder.Reset(file)
+				if file.Filename() == filename {
+					logrus.WithField("filename", filename).Panicf("next log file filename error")
+				}
 			}
 		}
 	}()
@@ -250,7 +253,8 @@ func (wal *wal) startWriteEntryGoroutine() {
 
 func (wal *wal) CreateLogFile() (LogFile, error) {
 	wal.createLogIndex++
-	filename := filepath.Join(wal.Options.Dir, strconv.FormatUint(wal.createLogIndex, 10)+logExt)
+	filename := filepath.Join(wal.Options.Dir,
+		strconv.FormatUint(wal.createLogIndex, 10)+logExt)
 	f, err := os.OpenFile(filename, os.O_CREATE|os.O_RDWR, 0666)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -261,7 +265,6 @@ func (wal *wal) CreateLogFile() (LogFile, error) {
 }
 func (wal *wal) startCreatLogFileRoutine() {
 	wal.wg.Add(1)
-	wal.createLogIndex = math.MaxUint64 / 2
 	go func() {
 		defer wal.wg.Done()
 		for {

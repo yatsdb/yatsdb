@@ -142,7 +142,7 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 		if err != nil {
 			return nil, errors.WithStack(err)
 		}
-		w.createLogIndex = index + 1
+		w.createLogIndex = index
 	}
 
 	w.startCreatLogFileRoutine()
