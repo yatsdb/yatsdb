@@ -67,7 +67,7 @@ func Open(options Options) (*StreamStore, error) {
 		Options:       options,
 		ctx:           ctx,
 		cancel:        cancel,
-		appendEntryCh: make(chan appendEntry, 1024),
+		appendEntryCh: make(chan appendEntry, 64*1024),
 		mtableMtx:     sync.Mutex{},
 		omap:          newOffsetMap(),
 		mTables:       &[]MTable{},
@@ -390,6 +390,7 @@ func (ss *StreamStore) startWriteEntryRoutine() {
 			select {
 			case entry := <-ss.appendEntryCh:
 				offset := ss.writeEntry(entry)
+				offset -= int64(len(entry.entry.Data))
 				ss.asyncCallback(func() {
 					entry.fn(offset, nil)
 				})
@@ -402,7 +403,7 @@ func (ss *StreamStore) startWriteEntryRoutine() {
 
 func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader, error) {
 	mTables := ss.getMtables()
-	if i := SearchMTables(mTables, streamID, offset); i != -1 {
+	if i := SearchMTables1(mTables, streamID, offset); i != -1 {
 		return mTables[i].NewReader(streamID)
 	}
 
@@ -413,6 +414,10 @@ func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader
 		return segment.NewReader(streamID)
 	}
 	ss.segmentLocker.RUnlock()
+
+	if i := SearchMTables2(mTables, streamID, offset); i != -1 {
+		return mTables[i].NewReader(streamID)
+	}
 	return nil, io.EOF
 }
 
