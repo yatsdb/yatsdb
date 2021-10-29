@@ -1,10 +1,13 @@
 package yatsdb
 
 import (
+	"io/ioutil"
 	"path/filepath"
 
+	"github.com/pkg/errors"
 	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 	streamstore "github.com/yatsdb/yatsdb/aoss/stream-store"
+	"gopkg.in/yaml.v3"
 )
 
 type Options struct {
@@ -32,4 +35,28 @@ func DefaultOptions(path string) Options {
 			WriteGorutines: 32,
 		},
 	}
+}
+
+//ParseConfig parse config from file
+func ParseConfig(filepath string) (Options, error) {
+	var opts = DefaultOptions("")
+	data, err := ioutil.ReadFile(filepath)
+	if err != nil {
+		return opts, errors.WithStack(err)
+	}
+	if err := yaml.Unmarshal(data, &opts); err != nil {
+		return opts, errors.WithStack(err)
+	}
+	return opts, nil
+}
+
+func WriteConfig(opts Options, filepath string) error {
+	data, err := yaml.Marshal(opts)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	if err := ioutil.WriteFile(filepath, data, 0666); err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
 }

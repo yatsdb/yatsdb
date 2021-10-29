@@ -231,7 +231,7 @@ func (wal *wal) startWriteEntryGoroutine() {
 				return
 			}
 
-			if file.Size() > wal.MaxLogSize {
+			if file.Size() > int64(wal.MaxLogSize) {
 				file.SetLastEntryID(batch.Entries[len(batch.Entries)-1].ID)
 				filename := file.Filename()
 				if err := file.Rename(); err != nil {
