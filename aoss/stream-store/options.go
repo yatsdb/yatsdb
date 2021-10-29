@@ -24,14 +24,7 @@ func DefaultOptionsWithDir(dir string) Options {
 		dir = "data"
 	}
 	return Options{
-		WalOptions: wal.Options{
-			SyncWrite:     true,
-			SyncBatchSize: 1024,
-			MaxLogSize:    1 << 20,
-			Dir:           filepath.Join(dir, "wals"),
-			BatchSize:     1024,
-			TruncateLast:  true,
-		},
+		WalOptions:       wal.DefaultOption(filepath.Join(dir, "wals")),
 		MaxMemTableSize:  512 << 20,
 		MaxMTables:       1,
 		CallbackRoutines: 4,
