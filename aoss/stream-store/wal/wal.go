@@ -180,6 +180,9 @@ func (wal *wal) startWriteEntryGoroutine() {
 		defer wal.wg.Done()
 		file, err := wal.getLogFile()
 		if err != nil {
+			if err == wal.ctx.Err() {
+				return
+			}
 			logrus.Panicf("get log file failed %+v", err)
 		}
 		var encoder = newEncoder(file)
@@ -259,9 +262,7 @@ func (wal *wal) CreateLogFile() (LogFile, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return &logFile{
-		f: f,
-	}, nil
+	return initLogFile(f, 0, 0)
 }
 func (wal *wal) startCreatLogFileRoutine() {
 	wal.wg.Add(1)

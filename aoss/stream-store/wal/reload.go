@@ -80,7 +80,7 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 	}
 	var lastFileInfo *FileInfo
 	for i, fileInfo := range fileInfos {
-
+		logrus.WithField("filename", fileInfo.f.Name()).Info("reload wal log")
 		//range entries
 		iter := newEntryIteractor(newDecoder(fileInfo.f))
 		for {
@@ -114,7 +114,7 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 		}
 
 		//close files
-		if i < len(fileInfos)-1 || fileInfo.Size == options.MaxLogSize {
+		if i < len(fileInfos)-1 || fileInfo.Size >= options.MaxLogSize {
 			lf, err := initLogFile(fileInfo.f, fileInfo.firstID, fileInfo.lastID)
 			if err != nil {
 				return nil, errors.WithStack(err)
