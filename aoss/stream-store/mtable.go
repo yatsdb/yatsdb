@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -82,7 +83,13 @@ func (b *Chunks) WriteTo(w io.Writer) (n int64, err error) {
 	b.RUnlock()
 	return
 }
+func (b *Chunks) Offset() (from int64, to int64) {
+	from = b.From
+	to = atomic.LoadInt64(&b.To)
+	return
+}
 func (b *Chunks) Write(data []byte) int64 {
+	dataLen := len(data)
 	b.Lock()
 	if b.chunks == nil {
 		b.chunks = append(b.chunks, chunk{
@@ -101,10 +108,10 @@ func (b *Chunks) Write(data []byte) int64 {
 		}
 		n := copy(last.buf[last.offset:], data)
 		data = data[n:]
-		b.To += int64(n)
 		last.offset += n
 	}
 	b.Unlock()
+	atomic.AddInt64(&b.To, int64(dataLen))
 	return b.To
 }
 
