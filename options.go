@@ -8,11 +8,15 @@ import (
 )
 
 type Options struct {
-	BadgerDBStoreDir       string                                 `yaml:"badger_db_store_dir,omitempty"`
-	EnableStreamStore      bool                                   `yaml:"enable_stream_store,omitempty"`
-	ReadGorutines          int                                    `yaml:"read_gorutines,omitempty"`
-	StreamStoreOptions     streamstore.Options                    `yaml:"stream_store_options,omitempty"`
-	FileStreamStoreOptions filestreamstore.FileStreamStoreOptions `yaml:"file_stream_store_options,omitempty"`
+	BadgerDBStoreDir       string                                 `yaml:"badger_db_store_dir"`
+	EnableStreamStore      bool                                   `yaml:"enable_stream_store"`
+	ReadGorutines          int                                    `yaml:"read_gorutines"`
+	StreamStoreOptions     streamstore.Options                    `yaml:"stream_store_options"`
+	FileStreamStoreOptions filestreamstore.FileStreamStoreOptions `yaml:"file_stream_store_options"`
+	Debug                  struct {
+		DumpReadRequestResponse bool `yaml:"dump_read_request_response"`
+		LogWriteStat            bool `yaml:"log_write_stat"`
+	} `yaml:"debug"`
 }
 
 //DefaultOptions return default options with store path
