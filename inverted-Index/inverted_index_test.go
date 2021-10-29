@@ -5,12 +5,9 @@ import (
 	"os"
 	"reflect"
 	"sort"
-	"sync"
 	"testing"
 
-	"github.com/dgraph-io/badger/v3"
 	"github.com/prometheus/prometheus/prompb"
-	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 )
 
 func TestOpenBadgerIndex(t *testing.T) {
@@ -43,9 +40,11 @@ func TestOpenBadgerIndex(t *testing.T) {
 }
 
 func TestBadgerIndex_Insert(t *testing.T) {
-
+	t.Cleanup(func() {
+		os.RemoveAll(t.Name())
+	})
 	dbpath := t.Name()
-	db, err := OpenBadgerIndex(context.Background(), dbpath)
+	index, err := OpenBadgerIndex(context.Background(), dbpath)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -53,23 +52,16 @@ func TestBadgerIndex_Insert(t *testing.T) {
 		os.RemoveAll(dbpath)
 	})
 
-	type fields struct {
-		db              *badger.DB
-		batcher         *badgerbatcher.BadgerDBBatcher
-		streamIDsLocker *sync.Mutex
-		streamIDs       map[StreamID]bool
-	}
 	type args struct {
 		streamMetric StreamMetric
 	}
 	tests := []struct {
 		name    string
-		fields  fields
 		args    args
 		wantErr bool
 	}{
 		{
-			fields: fields{db: db.db, batcher: db.batcher, streamIDsLocker: db.streamIDsLocker, streamIDs: db.streamIDs},
+
 			args: args{streamMetric: StreamMetric{
 				Labels: []prompb.Label{
 					{Name: "a", Value: "b"},
@@ -79,7 +71,7 @@ func TestBadgerIndex_Insert(t *testing.T) {
 			}},
 		},
 		{
-			fields: fields{db: db.db, batcher: db.batcher, streamIDsLocker: db.streamIDsLocker, streamIDs: db.streamIDs},
+
 			args: args{streamMetric: StreamMetric{
 				Labels: []prompb.Label{
 					{Name: "a", Value: "b"},
@@ -90,7 +82,7 @@ func TestBadgerIndex_Insert(t *testing.T) {
 			}},
 		},
 		{
-			fields: fields{db: db.db, batcher: db.batcher, streamIDsLocker: db.streamIDsLocker, streamIDs: db.streamIDs},
+
 			args: args{streamMetric: StreamMetric{
 				Labels: []prompb.Label{
 					{Name: "a", Value: "b"},
@@ -104,12 +96,6 @@ func TestBadgerIndex_Insert(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			index := &BadgerIndex{
-				db:              tt.fields.db,
-				batcher:         tt.fields.batcher,
-				streamIDsLocker: tt.fields.streamIDsLocker,
-				streamIDs:       tt.fields.streamIDs,
-			}
 			if err := index.Insert(tt.args.streamMetric); (err != nil) != tt.wantErr {
 				t.Errorf("BadgerIndex.Insert() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -120,7 +106,7 @@ func TestBadgerIndex_Insert(t *testing.T) {
 func TestBadgerIndex_Matches(t *testing.T) {
 
 	dbpath := t.Name()
-	db, err := OpenBadgerIndex(context.Background(), dbpath)
+	index, err := OpenBadgerIndex(context.Background(), dbpath)
 	if err != nil {
 		t.Fatalf(err.Error())
 	}
@@ -137,31 +123,23 @@ func TestBadgerIndex_Matches(t *testing.T) {
 	}
 
 	for _, metric := range streamMetrics {
-		if err := db.Insert(metric); err != nil {
+		if err := index.Insert(metric); err != nil {
 			t.Fatal(err.Error())
 		}
 	}
 
-	type fields struct {
-		db              *badger.DB
-		batcher         *badgerbatcher.BadgerDBBatcher
-		streamIDsLocker *sync.Mutex
-		streamIDs       map[StreamID]bool
-	}
 	type args struct {
 		labelMatchers []*prompb.LabelMatcher
 	}
 
-	f := fields{db: db.db, batcher: db.batcher, streamIDsLocker: db.streamIDsLocker, streamIDs: db.streamIDs}
 	tests := []struct {
 		name    string
-		fields  fields
 		args    args
 		want    []StreamMetric
 		wantErr bool
 	}{
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 			}},
@@ -172,7 +150,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "a"},
@@ -182,7 +160,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_EQ, Name: "i", Value: "missing"},
@@ -190,7 +168,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			want: nil,
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "missing", Value: ""},
 			}},
@@ -203,7 +181,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_NEQ, Name: "n", Value: "1"},
 			}},
@@ -213,7 +191,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""},
 			}},
@@ -223,14 +201,14 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_NEQ, Name: "missing", Value: ""},
 			}},
 			want: nil,
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: "a"},
@@ -241,7 +219,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_NEQ, Name: "i", Value: ""},
@@ -252,7 +230,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_RE, Name: "n", Value: "^1$"},
 			}},
@@ -263,7 +241,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a$"},
@@ -273,7 +251,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^a?$"},
@@ -284,7 +262,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"},
 			}},
@@ -295,7 +273,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^$"},
@@ -305,7 +283,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.*$"},
@@ -317,7 +295,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "^.+$"},
@@ -328,7 +306,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_NRE, Name: "n", Value: "^1$"},
 			}},
@@ -338,7 +316,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^a?"},
@@ -348,7 +326,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^$"},
@@ -359,7 +337,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.*$"},
@@ -367,7 +345,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			want: nil,
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "^.+$"},
@@ -377,7 +355,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_EQ, Name: "n", Value: "1"},
 				{Type: prompb.LabelMatcher_NRE, Name: "i", Value: "b"},
@@ -388,7 +366,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_RE, Name: "n", Value: "1|2"},
 			}},
@@ -400,7 +378,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "a|b"},
 			}},
@@ -410,7 +388,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_RE, Name: "n", Value: "x2|2"},
 			}},
@@ -419,7 +397,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_RE, Name: "n", Value: "2|2\\.5"},
 			}},
@@ -429,7 +407,7 @@ func TestBadgerIndex_Matches(t *testing.T) {
 			},
 		},
 		{
-			fields: f,
+
 			args: args{labelMatchers: []*prompb.LabelMatcher{
 				{Type: prompb.LabelMatcher_RE, Name: "i", Value: "c||d"},
 			}},
@@ -442,12 +420,6 @@ func TestBadgerIndex_Matches(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			index := &BadgerIndex{
-				db:              tt.fields.db,
-				batcher:         tt.fields.batcher,
-				streamIDsLocker: tt.fields.streamIDsLocker,
-				streamIDs:       tt.fields.streamIDs,
-			}
 			got, err := index.Matches(tt.args.labelMatchers...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("BadgerIndex.Matches() error = %v, wantErr %v", err, tt.wantErr)
