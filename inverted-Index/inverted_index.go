@@ -8,6 +8,7 @@ import (
 
 	"github.com/coocood/freecache"
 	"github.com/dgraph-io/badger/v3"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
@@ -35,9 +36,10 @@ type DB interface {
 }
 
 type BadgerIndex struct {
-	db      *badger.DB
-	batcher *badgerbatcher.BadgerDBBatcher
-	cache   *freecache.Cache
+	db           *badger.DB
+	batcher      *badgerbatcher.BadgerDBBatcher
+	idCache      *freecache.Cache
+	metricsCache *gocache.Cache
 }
 
 var streamIDCacheVal = []byte("O")
@@ -62,14 +64,15 @@ func reloadStreamIDs(db *badger.DB, cache *freecache.Cache) error {
 }
 
 func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) (*BadgerIndex, error) {
-	cache := freecache.NewCache(32 << 20) //30MB
+	cache := freecache.NewCache(32 << 20) //32MiB
 	if err := reloadStreamIDs(db, cache); err != nil {
 		return nil, err
 	}
 	return &BadgerIndex{
-		db:      db,
-		batcher: batcher,
-		cache:   cache,
+		db:           db,
+		batcher:      batcher,
+		idCache:      cache,
+		metricsCache: gocache.New(time.Minute*10, time.Minute*5),
 	}, nil
 }
 
@@ -77,10 +80,6 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 	db, err := badger.Open(badger.DefaultOptions(path))
 	if err != nil {
 		return nil, errors.WithStack(err)
-	}
-	cache := freecache.NewCache(32 << 20) //30MB
-	if err := reloadStreamIDs(db, cache); err != nil {
-		return nil, err
 	}
 	go func() {
 		for {
@@ -92,17 +91,14 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 			}
 		}
 	}()
-	return &BadgerIndex{
-		db:      db,
-		batcher: badgerbatcher.NewBadgerDBBatcher(ctx, 32, db).Start(),
-		cache:   cache,
-	}, nil
+	return NewBadgerIndex(db,
+		badgerbatcher.NewBadgerDBBatcher(ctx, 4*1024, db).Start())
 }
 
 func (index *BadgerIndex) loadOrStoreStreamID(ID StreamID) bool {
-	_, err := index.cache.GetInt(int64(ID))
+	_, err := index.idCache.GetInt(int64(ID))
 	if err != nil {
-		index.cache.SetInt(int64(ID), streamIDCacheVal, 300)
+		index.idCache.SetInt(int64(ID), streamIDCacheVal, 300)
 	}
 	return err == nil
 }
@@ -230,21 +226,30 @@ func (index *BadgerIndex) Matches(labelMatchers ...*prompb.LabelMatcher) ([]Stre
 			for _, streamID := range streamIDs {
 				var buffer [8]byte
 				binary.BigEndian.PutUint64(buffer[:], uint64(streamID))
-				item, err := txn.Get([]byte(metricKeyPrefix + string(buffer[:])))
-				if err != nil {
-					return errors.WithStack(err)
-				}
-				var metric StreamMetric
-				if err := item.Value(func(val []byte) error {
-					if err := metric.Unmarshal(val); err != nil {
+
+				if obj, ok := index.metricsCache.Get(string(buffer[:])); ok {
+					if MetricMatches(obj.(StreamMetric), matchers...) {
+						result = append(result, obj.(StreamMetric))
+					}
+				} else {
+					item, err := txn.Get([]byte(metricKeyPrefix + string(buffer[:])))
+					if err != nil {
 						return errors.WithStack(err)
 					}
-					return nil
-				}); err != nil {
-					return err
-				}
-				if MetricMatches(metric, matchers...) {
-					result = append(result, metric)
+					var metric StreamMetric
+					if err := item.Value(func(val []byte) error {
+						if err := metric.Unmarshal(val); err != nil {
+							return errors.WithStack(err)
+						}
+						return nil
+					}); err != nil {
+						return err
+					}
+					if MetricMatches(metric, matchers...) {
+						result = append(result, metric)
+						//add to cache
+						index.metricsCache.Add(string(buffer[:]), metric, time.Minute*5)
+					}
 				}
 			}
 			return nil
