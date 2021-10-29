@@ -135,7 +135,11 @@ func OpenTSDB(options Options) (TSDB, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 1024, db).Start()
 	offsetDB := ssoffsetindex.NewSeriesStreamOffsetIndex(db, batcher)
-	metricIndexDB := invertedindex.NewBadgerIndex(db, batcher)
+	metricIndexDB, err := invertedindex.NewBadgerIndex(db, batcher)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
 	tsdb := &tsdb{
 		ctx:           ctx,
 		cancel:        cancel,

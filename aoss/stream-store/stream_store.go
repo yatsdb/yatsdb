@@ -292,7 +292,7 @@ func (ss *StreamStore) clearSegments() {
 		for _, s := range ss.segments {
 			size += s.Size()
 		}
-		if size > ss.Retention.Size {
+		if size > int64(ss.Retention.Size) {
 			ss.clearFirstSegmentWithLock()
 			continue
 		}
@@ -370,7 +370,7 @@ func (ss *StreamStore) appendMtable(mtable MTable) {
 func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 	offset := ss.mtable.Write(entry.entry)
 	ss.omap.set(entry.entry.StreamId, offset)
-	if ss.mtable.Size() < ss.MaxMemTableSize {
+	if ss.mtable.Size() < int(ss.MaxMemTableSize) {
 		return offset
 	}
 	logrus.WithField("stream_count", ss.mtable.StreamCount()).

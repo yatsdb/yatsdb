@@ -1,9 +1,11 @@
 package wal
 
+import "github.com/yatsdb/yatsdb/pkg/utils"
+
 type Options struct {
 	SyncWrite     bool
 	SyncBatchSize int
-	MaxLogSize    int64
+	MaxLogSize    utils.Bytes
 
 	Dir       string
 	BatchSize int
