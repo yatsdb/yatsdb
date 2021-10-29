@@ -41,19 +41,46 @@ type BadgerIndex struct {
 	streamIDs       map[StreamID]bool
 }
 
-func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) *BadgerIndex {
+func reloadStreamIDs(db *badger.DB, streamIDs map[StreamID]bool) error {
+	return db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		opts.Prefix = []byte(metricKeyPrefix)
+		iter := txn.NewIterator(opts)
+		defer iter.Close()
+		for iter.Rewind(); iter.Valid(); iter.Next() {
+			key := iter.Item().Key()
+			if len(key) < len(metricKeyPrefix)+8 {
+				return errors.New("metric key format error")
+			}
+			ID := StreamID(binary.BigEndian.Uint64(key[len(metricKeyPrefix):]))
+			streamIDs[ID] = true
+		}
+		return nil
+	})
+}
+
+func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) (*BadgerIndex, error) {
+	streamIDs := make(map[StreamID]bool, 1024)
+	if err := reloadStreamIDs(db, streamIDs); err != nil {
+		return nil, err
+	}
 	return &BadgerIndex{
 		db:              db,
 		batcher:         batcher,
 		streamIDsLocker: &sync.Mutex{},
-		streamIDs:       make(map[StreamID]bool, 1024),
-	}
+		streamIDs:       streamIDs,
+	}, nil
 }
 
 func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 	db, err := badger.Open(badger.DefaultOptions(path))
 	if err != nil {
 		return nil, errors.WithStack(err)
+	}
+	streamIDs := make(map[StreamID]bool, 1024)
+	if err := reloadStreamIDs(db, streamIDs); err != nil {
+		return nil, err
 	}
 	go func() {
 		for {
@@ -69,7 +96,7 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 		db:              db,
 		batcher:         badgerbatcher.NewBadgerDBBatcher(ctx, 32, db).Start(),
 		streamIDsLocker: &sync.Mutex{},
-		streamIDs:       make(map[StreamID]bool, 1024),
+		streamIDs:       streamIDs,
 	}, nil
 }
 
