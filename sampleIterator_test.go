@@ -6,11 +6,26 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/prometheus/prometheus/prompb"
 	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
+	"gopkg.in/stretchr/testify.v1/assert"
 )
+
+func Benchmark_sampleUnmarshal(t *testing.B) {
+	var sample prompb.Sample
+	sample.Timestamp = time.Now().UnixMilli()
+	sample.Value = float64(time.Now().UnixMilli())
+
+	data, err := sample.Marshal()
+	assert.NoError(t, err)
+
+	for i := 0; i < t.N; i++ {
+		sample.Unmarshal(data)
+	}
+}
 
 func Test_sampleIterator_Next(t *testing.T) {
 	t.Cleanup(func() {
