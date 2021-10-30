@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -11,40 +12,32 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/sirupsen/logrus"
 	"github.com/yatsdb/yatsdb"
-	"gopkg.in/yaml.v2"
 )
 
 func StartHttpService() {
 
 	var conf string
-	var dump string
+	var genConfig string
 	flag.StringVar(&conf, "config file", "yatsdb.yml", "config file yml format")
-	flag.StringVar(&dump, "dump-config", "", "dump default config")
+	flag.StringVar(&genConfig, "gen-config", "", "generate default config")
 	flag.Parse()
 
-	opts := yatsdb.DefaultOptions("data")
-
-	if dump != "" {
-		data, _ := yaml.Marshal(opts)
-		if err := ioutil.WriteFile(dump, data, 0666); err != nil {
-			panic(err)
+	if genConfig != "" {
+		if err := yatsdb.WriteConfig(yatsdb.DefaultOptions("data"), genConfig); err != nil {
+			fmt.Println(err.Error())
 		}
 		return
 	}
-	data, err := ioutil.ReadFile(conf)
-	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"config": conf,
-			"err":    err.Error(),
-		}).Panic("read config file error")
-		return
-	}
-	if err := yaml.Unmarshal(data, &opts); err != nil {
-		panic(err.Error())
+
+	var opts yatsdb.Options
+	var err error
+	if opts, err = yatsdb.ParseConfig(conf); err != nil {
+		logrus.WithField("config file", conf).WithError(err).Panicf("parseConfig failed")
 	}
 
 	tsdb, err := yatsdb.OpenTSDB(opts)
@@ -58,6 +51,9 @@ func StartHttpService() {
 	var samples int
 	var takeTimes time.Duration
 	var writeRequest int64
+
+	http.Handle("/metrics", promhttp.Handler())
+
 	http.HandleFunc("/write", func(w http.ResponseWriter, r *http.Request) {
 		req, err := remote.DecodeWriteRequest(r.Body)
 		if err != nil {

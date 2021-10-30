@@ -7,6 +7,7 @@ import (
 type OffsetMap interface {
 	set(id StreamID, offset int64)
 	get(id StreamID) (offset int64, ok bool)
+	size() int
 }
 
 func newOffsetMap() OffsetMap {
@@ -32,4 +33,9 @@ func (omap *OffsetMapWithLocker) get(id StreamID) (offset int64, ok bool) {
 	offset, ok = omap.offsets[id]
 	omap.locker.RUnlock()
 	return
+}
+func (omap *OffsetMapWithLocker) size() int {
+	omap.locker.RLock()
+	defer omap.locker.RUnlock()
+	return len(omap.offsets)
 }

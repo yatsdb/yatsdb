@@ -13,8 +13,10 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 )
 
 func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
@@ -114,7 +116,7 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 		}
 
 		//close files
-		if i < len(fileInfos)-1 || fileInfo.Size >= options.MaxLogSize {
+		if i < len(fileInfos)-1 || fileInfo.Size >= int64(options.MaxLogSize) {
 			lf, err := initLogFile(fileInfo.f, fileInfo.firstID, fileInfo.lastID)
 			if err != nil {
 				return nil, errors.WithStack(err)
@@ -144,6 +146,15 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 		}
 		w.createLogIndex = index
 	}
+
+	metrics.WalLogFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "stream_store_wal",
+		Name:      "log_files",
+		Help:      "total of stream-store wal log files",
+	}, func() float64 {
+		return float64(w.getLogFiles())
+	})
 
 	w.startCreatLogFileRoutine()
 	w.startSyncEntriesGoroutine()

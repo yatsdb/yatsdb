@@ -4,15 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"sync"
 	"time"
 
+	"github.com/coocood/freecache"
 	"github.com/dgraph-io/badger/v3"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/sirupsen/logrus"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 )
 
 var (
@@ -35,19 +38,64 @@ type DB interface {
 }
 
 type BadgerIndex struct {
-	db              *badger.DB
-	batcher         *badgerbatcher.BadgerDBBatcher
-	streamIDsLocker *sync.Mutex
-	streamIDs       map[StreamID]bool
+	db           *badger.DB
+	batcher      *badgerbatcher.BadgerDBBatcher
+	idCache      *freecache.Cache
+	metricsCache *gocache.Cache
 }
 
-func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) *BadgerIndex {
-	return &BadgerIndex{
-		db:              db,
-		batcher:         batcher,
-		streamIDsLocker: &sync.Mutex{},
-		streamIDs:       make(map[StreamID]bool, 1024),
+var streamIDCacheVal = []byte("O")
+
+func reloadStreamIDs(db *badger.DB, cache *freecache.Cache) error {
+	return db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		opts.Prefix = []byte(metricKeyPrefix)
+		iter := txn.NewIterator(opts)
+		defer iter.Close()
+		for iter.Rewind(); iter.Valid(); iter.Next() {
+			key := iter.Item().Key()
+			if len(key) < len(metricKeyPrefix)+8 {
+				return errors.New("metric key format error")
+			}
+			ID := StreamID(binary.BigEndian.Uint64(key[len(metricKeyPrefix):]))
+			cache.SetInt(int64(ID), streamIDCacheVal, 300)
+		}
+		return nil
+	})
+}
+
+func NewBadgerIndex(db *badger.DB, batcher *badgerbatcher.BadgerDBBatcher) (*BadgerIndex, error) {
+	cache := freecache.NewCache(32 << 20) //32MiB
+	if err := reloadStreamIDs(db, cache); err != nil {
+		return nil, err
 	}
+	metricsCache := gocache.New(time.Minute*10, time.Minute*5)
+
+	metrics.StreamIDCacheCount = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "inverted_index",
+		Name:      "streamID_cache_entry_count",
+		Help:      "total of yatsdb inverted-index streamID cache entry size",
+	}, func() float64 {
+		return float64(cache.EntryCount())
+	})
+
+	metrics.StreamMetricsCacheCount = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "inverted_index",
+		Name:      "metrics_cache_entry_count",
+		Help:      "total of yatsdb inverted-index metrics cache entry size",
+	}, func() float64 {
+		return float64(metricsCache.ItemCount())
+	})
+
+	return &BadgerIndex{
+		db:           db,
+		batcher:      batcher,
+		idCache:      cache,
+		metricsCache: metricsCache,
+	}, nil
 }
 
 func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
@@ -65,22 +113,17 @@ func OpenBadgerIndex(ctx context.Context, path string) (*BadgerIndex, error) {
 			}
 		}
 	}()
-	return &BadgerIndex{
-		db:              db,
-		batcher:         badgerbatcher.NewBadgerDBBatcher(ctx, 32, db).Start(),
-		streamIDsLocker: &sync.Mutex{},
-		streamIDs:       make(map[StreamID]bool, 1024),
-	}, nil
+	return NewBadgerIndex(db,
+		badgerbatcher.NewBadgerDBBatcher(ctx, 4*1024, db).Start())
 }
 
 func (index *BadgerIndex) loadOrStoreStreamID(ID StreamID) bool {
-	index.streamIDsLocker.Lock()
-	_, ok := index.streamIDs[ID]
-	if !ok {
-		index.streamIDs[ID] = true
+	_, err := index.idCache.GetInt(int64(ID))
+	if err != nil {
+		index.idCache.SetInt(int64(ID), streamIDCacheVal, 300)
 	}
-	index.streamIDsLocker.Unlock()
-	return ok
+
+	return err == nil
 }
 
 /*
@@ -206,21 +249,30 @@ func (index *BadgerIndex) Matches(labelMatchers ...*prompb.LabelMatcher) ([]Stre
 			for _, streamID := range streamIDs {
 				var buffer [8]byte
 				binary.BigEndian.PutUint64(buffer[:], uint64(streamID))
-				item, err := txn.Get([]byte(metricKeyPrefix + string(buffer[:])))
-				if err != nil {
-					return errors.WithStack(err)
-				}
-				var metric StreamMetric
-				if err := item.Value(func(val []byte) error {
-					if err := metric.Unmarshal(val); err != nil {
+
+				if obj, ok := index.metricsCache.Get(string(buffer[:])); ok {
+					if MetricMatches(obj.(StreamMetric), matchers...) {
+						result = append(result, obj.(StreamMetric))
+					}
+				} else {
+					item, err := txn.Get([]byte(metricKeyPrefix + string(buffer[:])))
+					if err != nil {
 						return errors.WithStack(err)
 					}
-					return nil
-				}); err != nil {
-					return err
-				}
-				if MetricMatches(metric, matchers...) {
-					result = append(result, metric)
+					var metric StreamMetric
+					if err := item.Value(func(val []byte) error {
+						if err := metric.Unmarshal(val); err != nil {
+							return errors.WithStack(err)
+						}
+						return nil
+					}); err != nil {
+						return err
+					}
+					if MetricMatches(metric, matchers...) {
+						result = append(result, metric)
+						//add to cache
+						index.metricsCache.Add(string(buffer[:]), metric, time.Minute*5)
+					}
 				}
 			}
 			return nil
