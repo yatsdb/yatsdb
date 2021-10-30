@@ -31,3 +31,14 @@ message SegmentFooter {
     uint64 first_entry_id = 3;
     uint64 last_entry_id = 4;
 }
+
+message StreamTimeStampOffset{
+    //metrics stream ID
+    uint64 stream_id = 1 [(gogoproto.customtype) = "StreamID" ,(gogoproto.nullable) = false];
+	//TimestampMS time series samples timestamp
+	int64 TimestampMS =2;
+	//Offset stream offset
+	int64 Offset =3;
+
+    uint64 ID = 4;
+}

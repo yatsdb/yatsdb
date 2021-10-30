@@ -5,7 +5,8 @@ import "fmt"
 type Type = byte
 
 const (
-	EntryType Type = 1
+	EntryType                 Type = 1
+	StreamTimeStampOffsetType Type = 2
 )
 
 type EntryTyper interface {
@@ -20,10 +21,16 @@ func (*Entry) Type() Type {
 	return EntryType
 }
 
+func (*StreamTimeStampOffset) Type() Type {
+	return StreamTimeStampOffsetType
+}
+
 func NewEntryTyper(typ Type) EntryTyper {
 	switch typ {
 	case EntryType:
 		return new(Entry)
+	case StreamTimeStampOffsetType:
+		return new(StreamTimeStampOffset)
 	default:
 		panic(fmt.Sprintf("unknown type %d", typ))
 	}

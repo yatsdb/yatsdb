@@ -126,9 +126,10 @@ func Open(options Options) (*StreamStore, error) {
 		lastEntryID = segment.LastEntryID()
 	}
 
+	ss.wg.Add(2 + ss.CallbackRoutines)
+
 	ss.mtable = newMTable(ss.omap)
 	ss.appendMtable(ss.mtable)
-	ss.wg.Add(3)
 	ss.startWriteEntryRoutine()
 	ss.startFlushMTableRoutine()
 	for i := 0; i < ss.CallbackRoutines; i++ {

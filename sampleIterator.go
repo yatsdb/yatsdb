@@ -32,7 +32,7 @@ func (creator *metricSampleIteratorCreater) CreateSampleSampleIterator(StreamMet
 	return &sampleIterator{
 		offset: StreamMetric,
 		closer: reader,
-		reader: bufio.NewReaderSize(reader, 64*1024),
+		reader: bufio.NewReaderSize(reader, 8*1024),
 	}, nil
 }
 

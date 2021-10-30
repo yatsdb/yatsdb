@@ -58,8 +58,6 @@ type StreamMetricOffset struct {
 	invertedindex.StreamMetric
 
 	Offset int64
-	//size to read
-	Size int64
 	//
 	StartTimestampMs int64
 	//

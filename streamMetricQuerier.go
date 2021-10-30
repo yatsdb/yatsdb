@@ -26,16 +26,9 @@ func (querier *streamMetricQuerier) QueryStreamMetric(query *prompb.Query) ([]*S
 				return nil, err
 			}
 		}
-		offsetEnd, err := querier.streamTimestampOffsetGetter.GetStreamTimestampOffset(metric.StreamID, query.StartTimestampMs, true)
-		if err != nil {
-			if err == ssoffsetindex.ErrNoFindOffset {
-				offsetEnd = offsetStart + 1024*1024*4
-			}
-		}
 		offset = append(offset, &StreamMetricOffset{
 			StreamMetric:     metric,
 			Offset:           offsetStart,
-			Size:             offsetEnd - offsetStart,
 			StartTimestampMs: query.StartTimestampMs,
 			EndTimestampMs:   query.EndTimestampMs,
 		})

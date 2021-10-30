@@ -147,20 +147,25 @@ func Reload(options Options, fn func(streamstorepb.EntryTyper) error) (*wal, err
 		w.createLogIndex = index
 	}
 
-	metrics.WalLogFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-		Namespace: "yatsdb",
-		Subsystem: "stream_store_wal",
-		Name:      "log_files",
-		Help:      "total of stream-store wal log files",
-	}, func() float64 {
-		return float64(w.getLogFiles())
-	})
+	if metrics.WalLogFiles == nil {
+		metrics.WalLogFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "yatsdb",
+			Subsystem: "stream_store_wal",
+			Name:      "log_files",
+			Help:      "total of stream-store wal log files",
+		}, func() float64 {
+			return float64(w.getLogFiles())
+		})
+	}
 
 	w.startCreatLogFileRoutine()
 	w.startSyncEntriesGoroutine()
 	w.startWriteEntryGoroutine()
 
-	logrus.Infof("reload wal success last entry ID %d", w.entryID)
+	logrus.WithFields(logrus.Fields{
+		"entryID": w.entryID,
+		"dir":     options.Dir,
+	}).Info("reload wal success")
 
 	return &w, nil
 }
