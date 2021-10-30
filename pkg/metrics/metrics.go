@@ -34,7 +34,7 @@ var (
 )
 
 func MustRegister(r prometheus.Registerer) {
-	r.MustRegister(ReadRequestCounter,
+	r.MustRegister(
 		//request counter
 		ReadRequestCounter,
 		WriteRequestCounter,
