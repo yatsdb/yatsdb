@@ -21,7 +21,8 @@ import (
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	"github.com/yatsdb/yatsdb/pkg/metrics"
-	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
+	ssoffsetindex "github.com/yatsdb/yatsdb/ssoffsetindex"
+	"github.com/yatsdb/yatsdb/ssoffsetindex/badgeroffsetindex"
 )
 
 type TSDB interface {
@@ -135,7 +136,7 @@ func OpenTSDB(options Options) (TSDB, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 1024, db).Start()
-	offsetDB := ssoffsetindex.NewSeriesStreamOffsetIndex(db, batcher)
+	offsetDB := badgeroffsetindex.NewSeriesStreamOffsetIndex(db, batcher)
 	metricIndexDB, err := invertedindex.NewBadgerIndex(db, batcher)
 	if err != nil {
 		cancel()

@@ -3,7 +3,7 @@ package yatsdb
 import (
 	"github.com/prometheus/prometheus/prompb"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
-	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
+	ssoffsetindex "github.com/yatsdb/yatsdb/ssoffsetindex"
 )
 
 type streamMetricQuerier struct {

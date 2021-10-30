@@ -13,9 +13,6 @@ message Entry{
     uint64 ID = 3;
 }
 
-message EntryBatch{
-    repeated Entry entries = 1 [(gogoproto.nullable) = false];
-}
 
 //StreamOffset stream offset range [from,to)
 message StreamOffset {

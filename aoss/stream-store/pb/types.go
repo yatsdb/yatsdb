@@ -2,28 +2,29 @@ package streamstorepb
 
 import "fmt"
 
-type EntryType = byte
+type Type = byte
 
 const (
-	EntryBatchType EntryType = 1
+	EntryType Type = 1
 )
 
 type EntryTyper interface {
-	Type() EntryType
+	Type() Type
+	GetID() uint64
 	MarshalTo(buffer []byte) (int, error)
 	Unmarshal(data []byte) error
 	Size() int
 }
 
-func (*EntryBatch) Type() EntryType {
-	return EntryBatchType
+func (*Entry) Type() Type {
+	return EntryType
 }
 
-func NewEntryTyper(entryType EntryType) EntryTyper {
-	switch entryType {
-	case EntryBatchType:
-		return new(EntryBatch)
+func NewEntryTyper(typ Type) EntryTyper {
+	switch typ {
+	case EntryType:
+		return new(Entry)
 	default:
-		panic(fmt.Sprintf("unknown type %d", entryType))
+		panic(fmt.Sprintf("unknown type %d", typ))
 	}
 }

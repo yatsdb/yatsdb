@@ -8,10 +8,6 @@ import (
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 )
 
-type EntryIteractor interface {
-	Next() (streamstorepb.Entry, error)
-}
-
 type Decoder interface {
 	Decode() (streamstorepb.EntryTyper, error)
 }
@@ -47,36 +43,4 @@ func (d *decoder) Decode() (streamstorepb.EntryTyper, error) {
 		return nil, errors.WithStack(err)
 	}
 	return entryTyper, nil
-}
-
-type entryIteractor struct {
-	entries []streamstorepb.Entry
-	Decoder
-}
-
-func newEntryIteractor(d Decoder) EntryIteractor {
-	return &entryIteractor{
-		Decoder: d,
-	}
-}
-
-func (i *entryIteractor) Next() (streamstorepb.Entry, error) {
-	if len(i.entries) != 0 {
-		entry := i.entries[0]
-		i.entries = i.entries[1:]
-		return entry, nil
-	}
-	for {
-		entryTyper, err := i.Decode()
-		if err != nil {
-			return streamstorepb.Entry{}, err
-		}
-		switch val := entryTyper.(type) {
-		case *streamstorepb.EntryBatch:
-			i.entries = val.Entries
-			return i.Next()
-		default:
-			continue
-		}
-	}
 }
