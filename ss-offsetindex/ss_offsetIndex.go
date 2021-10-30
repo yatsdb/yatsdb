@@ -10,6 +10,7 @@ import (
 	"github.com/pkg/errors"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 )
 
 type StreamID = invertedindex.StreamID
@@ -144,6 +145,9 @@ func (index *SeriesStreamOffsetIndex) SetStreamTimestampOffset(offset SeriesStre
 		fn(nil)
 		return
 	}
+	
+	metrics.UpdateOffsetIndexCount.Inc()
+
 	index.batcher.Update(badgerbatcher.BadgerOP{
 		Op: func(txn *badger.Txn) error {
 			keyBuffer := make([]byte, 16+offsetPrefixLen)

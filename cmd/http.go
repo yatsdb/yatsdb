@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/golang/snappy"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/sirupsen/logrus"
@@ -50,6 +51,9 @@ func StartHttpService() {
 	var samples int
 	var takeTimes time.Duration
 	var writeRequest int64
+
+	http.Handle("/metrics", promhttp.Handler())
+
 	http.HandleFunc("/write", func(w http.ResponseWriter, r *http.Request) {
 		req, err := remote.DecodeWriteRequest(r.Body)
 		if err != nil {

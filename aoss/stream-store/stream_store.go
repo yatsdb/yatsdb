@@ -15,10 +15,12 @@ import (
 	"unsafe"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 	"github.com/yatsdb/yatsdb/aoss/stream-store/wal"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 )
 
 var (
@@ -132,6 +134,33 @@ func Open(options Options) (*StreamStore, error) {
 	for i := 0; i < ss.CallbackRoutines; i++ {
 		ss.startCallbackRoutine()
 	}
+
+	metrics.SegmentFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "stream_store",
+		Name:      "segment_files",
+		Help:      "size of yatsdb stream store segment files",
+	}, func() float64 {
+		return float64(ss.segmentCount())
+	})
+
+	metrics.MTables = prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Namespace: "yatsdb",
+		Subsystem: "stream_store",
+		Name:      "mtables",
+		Help:      "total mtables size",
+	}, func() float64 {
+		return float64(len(ss.getMtables()))
+	})
+
+	metrics.OMapLen = prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Namespace: "yatsdb",
+		Subsystem: "stream_store",
+		Name:      "offset_map",
+		Help:      "size of offset_map",
+	}, func() float64 {
+		return float64(ss.omap.size())
+	})
 
 	var wg sync.WaitGroup
 	var reloadCount int64
@@ -317,6 +346,12 @@ func (ss *StreamStore) openSegment(filename string) (Segment, error) {
 		return nil, errors.Errorf("open file %s failed %s", filename, err.Error())
 	}
 	return newSegment(f)
+}
+
+func (ss *StreamStore) segmentCount() int {
+	ss.segmentLocker.Lock()
+	defer ss.segmentLocker.Unlock()
+	return len(ss.segments)
 }
 
 func (ss *StreamStore) updateSegments(segment Segment) {
