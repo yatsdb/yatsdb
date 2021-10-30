@@ -153,6 +153,15 @@ func Open(options Options) (*StreamStore, error) {
 		return float64(len(ss.getMtables()))
 	})
 
+	metrics.OMapLen = prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Namespace: "yatsdb",
+		Subsystem: "stream_store",
+		Name:      "offset_map",
+		Help:      "size of offset_map",
+	}, func() float64 {
+		return float64(ss.omap.size())
+	})
+
 	var wg sync.WaitGroup
 	var reloadCount int64
 	var begin = time.Now()

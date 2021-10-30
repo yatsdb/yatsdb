@@ -23,6 +23,7 @@ var (
 	//stream store
 	SegmentFiles prometheus.GaugeFunc
 	MTables      prometheus.GaugeFunc
+	OMapLen      prometheus.GaugeFunc
 
 	//streamID cache
 	StreamIDCacheCount      prometheus.GaugeFunc
@@ -54,6 +55,7 @@ func MustRegister(r prometheus.Registerer) {
 		//stream store
 		SegmentFiles,
 		MTables,
+		OMapLen,
 
 		//streamID cache
 		StreamIDCacheCount,
