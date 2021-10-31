@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,7 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 	"github.com/yatsdb/yatsdb/aoss/stream-store/wal"
-	. "github.com/yatsdb/yatsdb/ssoffsetindex"
+	"github.com/yatsdb/yatsdb/ssoffsetindex"
 )
 
 type DB struct {
@@ -35,7 +36,7 @@ type Options struct {
 
 type STOffset struct {
 	//metrics stream ID
-	StreamId StreamID
+	StreamId ssoffsetindex.StreamID
 	//Offset stream offset
 	Offset int64
 }
@@ -55,7 +56,7 @@ type STOffsetTable struct {
 		From int64
 		To   int64
 	}
-	Offsets      map[StreamID]int64
+	Offsets      map[ssoffsetindex.StreamID]int64
 	wal          wal.Wal
 	tablesLocker *sync.Mutex
 }
@@ -90,7 +91,7 @@ func (db *DB) setFlushTables(tables []STOffsetTable) {
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&db.flushTables)), unsafe.Pointer(&tables))
 }
 
-func (db *DB) getoffsetTables() []STOffsetTable {
+func (db *DB) getOffsetTables() []STOffsetTable {
 	return *(*[]STOffsetTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&db.offsetTables))))
 }
 
@@ -98,13 +99,12 @@ func (db *DB) setOffsetTables(tables []STOffsetTable) {
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&db.offsetTables)), unsafe.Pointer(&tables))
 }
 
-func (db *DB) flushFullTable() {
-
+func (db *DB) flushOffsetMap() {
 	now := time.Now()
-	offsetTables := db.getoffsetTables()
+	offsetTables := db.getOffsetTables()
 	lastTable := offsetTables[len(offsetTables)-1]
 	toTS := time.UnixMilli(lastTable.Timestamp.To).Local()
-	if toTS.Sub(now)/2 < db.OffsetTableInterval {
+	if toTS.After(now) && toTS.Sub(now) < db.OffsetTableInterval/2 {
 		return
 	}
 
@@ -133,16 +133,25 @@ func (db *DB) flushFullTable() {
 		wal:          newWal,
 		WalDir:       dir,
 		tablesLocker: &sync.Mutex{},
-		Offsets:      make(map[StreamID]int64, 64*1024),
+		Offsets:      make(map[ssoffsetindex.StreamID]int64, 64*1024),
 	})
+
+	logrus.WithFields(logrus.Fields{
+		"wal":            dir,
+		"timestamp.from": time.UnixMilli(timestamp.From).Local(),
+		"timestamp.to":   time.UnixMilli(timestamp.To).Local(),
+	}).Info("create new offset map")
+
 	if len(offsetTables) > 2 {
 		first := offsetTables[0]
 		flushTables := append(append([]STOffsetTable{}, db.getFlushTables()...), first)
 		db.setFlushTables(flushTables)
 		offsetTables = append([]STOffsetTable{}, offsetTables[1:]...)
-		go db.flushTable(first)
+		db.setOffsetTables(offsetTables)
+		db.flushFileOffsetTable(first)
+	} else {
+		db.setOffsetTables(offsetTables)
 	}
-	db.setOffsetTables(offsetTables)
 }
 
 func (db *DB) startFlushTableRoutine() {
@@ -152,7 +161,7 @@ func (db *DB) startFlushTableRoutine() {
 			select {
 			case <-ticker.C:
 			}
-			db.flushFullTable()
+			db.flushOffsetMap()
 		}
 	}()
 }
@@ -162,7 +171,7 @@ const (
 	TableTmpExt = ".table.tmp"
 )
 
-func (db *DB) flushTable(table STOffsetTable) {
+func (db *DB) flushFileOffsetTable(table STOffsetTable) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	table.wal.Write(&STOffsetEntry{
@@ -203,7 +212,10 @@ func (db *DB) flushTable(table STOffsetTable) {
 		return offsetEntries[i].StreamId < offsetEntries[j].StreamId
 	})
 
-	data := *(*[]byte)(unsafe.Pointer(&offsetEntries[0]))
+	var data = make([]byte, int(unsafe.Sizeof(offsetEntries[0]))*len(offsetEntries))
+	for index, offset := range offsetEntries {
+		*(*STOffset)(unsafe.Pointer(&data[index*int(unsafe.Sizeof(offset))])) = offset
+	}
 
 	if _, err := f.Write(data); err != nil {
 		logrus.WithFields(logrus.Fields{"filename": tmpfile, "err": err}).
@@ -232,6 +244,13 @@ func (db *DB) flushTable(table STOffsetTable) {
 			"err":      err.Error(),
 		}).Panic("openTablefile error")
 	}
+	logrus.WithFields(logrus.Fields{
+		"tableFile":      tablefile,
+		"wal":            table.WalDir,
+		"timestamp.from": table.Timestamp.From,
+		"timestamp.to":   table.Timestamp.To,
+		"entryCount":     len(table.Offsets),
+	}).Infof("create file table success")
 }
 
 func parseTimestamp(filename string) (from int64, to int64, err error) {
@@ -249,6 +268,13 @@ func parseTimestamp(filename string) (from int64, to int64, err error) {
 		return 0, 0, errors.Errorf("parse to %s error %s", tokens[0], err.Error())
 	}
 	return
+}
+
+func unsafeSlice(slice, data unsafe.Pointer, len int) {
+	s := (*reflect.SliceHeader)(slice)
+	s.Data = uintptr(data)
+	s.Cap = len
+	s.Len = len
 }
 
 func (db *DB) openTablefile(filename string) error {
@@ -269,10 +295,12 @@ func (db *DB) openTablefile(filename string) error {
 			From: from,
 			To:   to,
 		},
-		mfile:     mfile,
-		filename:  filename,
-		STOffsets: *(*[]STOffset)(unsafe.Pointer(&mfile.Bytes()[0])),
+		mfile:    mfile,
+		filename: filename,
 	}
+	size := len(mfile.Bytes()) / int(unsafe.Sizeof(STOffset{}))
+	data := mfile.Bytes()
+	unsafeSlice(unsafe.Pointer(&table.STOffsets), unsafe.Pointer(&data[0]), size)
 
 	fileSTOffsetTables := db.getFileSTOffsetTables()
 
@@ -299,14 +327,12 @@ func (db *DB) openTablefile(filename string) error {
 		}
 	}
 	db.setFlushTables(remainFlushtables)
-
 	return nil
-
 }
 
-func (db *DB) GetStreamTimestampOffset(streamID StreamID, timestampMS int64, LE bool) (int64, error) {
+func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestampMS int64, LE bool) (int64, error) {
 
-	offsetTables := db.getoffsetTables()
+	offsetTables := db.getOffsetTables()
 	flushTables := db.getFlushTables()
 	fileSTOffsetTables := db.getFileSTOffsetTables()
 
@@ -344,11 +370,11 @@ func (db *DB) GetStreamTimestampOffset(streamID StreamID, timestampMS int64, LE 
 		}
 		table.tablesLocker.Unlock()
 	}
-	return 0, ErrNoFindOffset
+	return 0, ssoffsetindex.ErrNoFindOffset
 }
 
-func (db *DB) SetStreamTimestampOffset(entry SeriesStreamOffset, callback func(err error)) {
-	for _, table := range db.getoffsetTables() {
+func (db *DB) SetStreamTimestampOffset(entry ssoffsetindex.SeriesStreamOffset, callback func(err error)) {
+	for _, table := range db.getOffsetTables() {
 		table.tablesLocker.Lock()
 		if table.Timestamp.From <= entry.TimestampMS && entry.TimestampMS < table.Timestamp.To {
 			if _, ok := table.Offsets[entry.StreamID]; ok {
@@ -440,7 +466,7 @@ func Reload(options Options) (*DB, error) {
 					From: from,
 					To:   to,
 				},
-				Offsets:      map[StreamID]int64{},
+				Offsets:      map[ssoffsetindex.StreamID]int64{},
 				wal:          nil,
 				tablesLocker: &sync.Mutex{},
 			}
