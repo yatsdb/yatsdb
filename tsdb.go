@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -21,7 +20,10 @@ import (
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	"github.com/yatsdb/yatsdb/pkg/metrics"
-	ssoffsetindex "github.com/yatsdb/yatsdb/ss-offsetindex"
+	"github.com/yatsdb/yatsdb/pkg/utils"
+	ssoffsetindex "github.com/yatsdb/yatsdb/ssoffsetindex"
+	"github.com/yatsdb/yatsdb/ssoffsetindex/badgeroffsetindex"
+	"github.com/yatsdb/yatsdb/ssoffsetindex/tboffsetindex"
 )
 
 type TSDB interface {
@@ -57,8 +59,6 @@ type StreamMetricOffset struct {
 	invertedindex.StreamMetric
 
 	Offset int64
-	//size to read
-	Size int64
 	//
 	StartTimestampMs int64
 	//
@@ -87,7 +87,7 @@ type tsdb struct {
 	cancel context.CancelFunc
 
 	metricIndexDB invertedindex.DB
-	offsetDB      ssoffsetindex.OffsetDB
+	offsetIndexDB ssoffsetindex.OffsetIndexDB
 	streamStore   aoss.StreamStore
 
 	metricStreamReader   MetricSampleIteratorCreater
@@ -99,25 +99,15 @@ type tsdb struct {
 	readPipelines chan interface{}
 }
 
-func mkdirAll(dirs ...string) error {
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0777); err != nil {
-			if err != os.ErrExist {
-				return errors.WithStack(err)
-			}
-		}
-	}
-	return nil
-}
-
 func OpenTSDB(options Options) (TSDB, error) {
 	if options.ReadGorutines == 0 {
 		options.ReadGorutines = 128
 	}
-	if err := mkdirAll(options.BadgerDBStoreDir); err != nil {
+	if err := utils.MkdirAll(options.BadgerDBStoreDir); err != nil {
 		return nil, err
 	}
 	var streamStore aoss.StreamStore
+	var offsetIndexDB ssoffsetindex.OffsetIndexDB
 	var err error
 	if options.EnableStreamStore {
 		streamStore, err = streamstore.Open(options.StreamStoreOptions)
@@ -132,10 +122,14 @@ func OpenTSDB(options Options) (TSDB, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	batcher := badgerbatcher.NewBadgerDBBatcher(ctx, 1024, db).Start()
-	offsetDB := ssoffsetindex.NewSeriesStreamOffsetIndex(db, batcher)
+
+	if options.EnableTBOffsetIndex {
+		offsetIndexDB, err = tboffsetindex.Open(options.OffsetIndexOptions)
+	} else {
+		offsetIndexDB = badgeroffsetindex.NewSeriesStreamOffsetIndex(db, batcher)
+	}
 	metricIndexDB, err := invertedindex.NewBadgerIndex(db, batcher)
 	if err != nil {
 		cancel()
@@ -145,18 +139,18 @@ func OpenTSDB(options Options) (TSDB, error) {
 		ctx:           ctx,
 		cancel:        cancel,
 		metricIndexDB: metricIndexDB,
-		offsetDB:      offsetDB,
+		offsetIndexDB: offsetIndexDB,
 		streamStore:   streamStore,
 		samplesWriter: &samplesWriter{streamAppender: streamStore},
 		metricStreamReader: &metricSampleIteratorCreater{
 			streamReader: streamStore,
 		},
 		streamMetricQuerier: &streamMetricQuerier{
-			streamTimestampOffsetGetter: offsetDB,
+			streamTimestampOffsetGetter: offsetIndexDB,
 			metricMatcher:               metricIndexDB,
 		},
 		invertedIndexUpdater: metricIndexDB,
-		offsetIndexUpdater:   offsetDB,
+		offsetIndexUpdater:   offsetIndexDB,
 		readPipelines:        make(chan interface{}, options.ReadGorutines),
 	}
 	if options.Registerer != nil {

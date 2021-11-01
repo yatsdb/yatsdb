@@ -81,53 +81,6 @@ func (m *Entry) GetID() uint64 {
 	return 0
 }
 
-type EntryBatch struct {
-	Entries              []Entry  `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
-}
-
-func (m *EntryBatch) Reset()         { *m = EntryBatch{} }
-func (m *EntryBatch) String() string { return proto.CompactTextString(m) }
-func (*EntryBatch) ProtoMessage()    {}
-func (*EntryBatch) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f80abaa17e25ccc8, []int{1}
-}
-func (m *EntryBatch) XXX_Unmarshal(b []byte) error {
-	return m.Unmarshal(b)
-}
-func (m *EntryBatch) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
-	if deterministic {
-		return xxx_messageInfo_EntryBatch.Marshal(b, m, deterministic)
-	} else {
-		b = b[:cap(b)]
-		n, err := m.MarshalToSizedBuffer(b)
-		if err != nil {
-			return nil, err
-		}
-		return b[:n], nil
-	}
-}
-func (m *EntryBatch) XXX_Merge(src proto.Message) {
-	xxx_messageInfo_EntryBatch.Merge(m, src)
-}
-func (m *EntryBatch) XXX_Size() int {
-	return m.Size()
-}
-func (m *EntryBatch) XXX_DiscardUnknown() {
-	xxx_messageInfo_EntryBatch.DiscardUnknown(m)
-}
-
-var xxx_messageInfo_EntryBatch proto.InternalMessageInfo
-
-func (m *EntryBatch) GetEntries() []Entry {
-	if m != nil {
-		return m.Entries
-	}
-	return nil
-}
-
 //StreamOffset stream offset range [from,to)
 type StreamOffset struct {
 	StreamId StreamID `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3,customtype=StreamID" json:"stream_id"`
@@ -146,7 +99,7 @@ func (m *StreamOffset) Reset()         { *m = StreamOffset{} }
 func (m *StreamOffset) String() string { return proto.CompactTextString(m) }
 func (*StreamOffset) ProtoMessage()    {}
 func (*StreamOffset) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f80abaa17e25ccc8, []int{2}
+	return fileDescriptor_f80abaa17e25ccc8, []int{1}
 }
 func (m *StreamOffset) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -210,7 +163,7 @@ func (m *SegmentFooter) Reset()         { *m = SegmentFooter{} }
 func (m *SegmentFooter) String() string { return proto.CompactTextString(m) }
 func (*SegmentFooter) ProtoMessage()    {}
 func (*SegmentFooter) Descriptor() ([]byte, []int) {
-	return fileDescriptor_f80abaa17e25ccc8, []int{3}
+	return fileDescriptor_f80abaa17e25ccc8, []int{2}
 }
 func (m *SegmentFooter) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -267,43 +220,196 @@ func (m *SegmentFooter) GetLastEntryId() uint64 {
 	return 0
 }
 
+type StreamTimeStampOffset struct {
+	//metrics stream ID
+	StreamId StreamID `protobuf:"varint,1,opt,name=stream_id,json=streamId,proto3,customtype=StreamID" json:"stream_id"`
+	//TimestampMS time series samples timestamp
+	TimestampMS int64 `protobuf:"varint,2,opt,name=TimestampMS,proto3" json:"TimestampMS,omitempty"`
+	//Offset stream offset
+	Offset               int64    `protobuf:"varint,3,opt,name=Offset,proto3" json:"Offset,omitempty"`
+	ID                   uint64   `protobuf:"varint,4,opt,name=ID,proto3" json:"ID,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *StreamTimeStampOffset) Reset()         { *m = StreamTimeStampOffset{} }
+func (m *StreamTimeStampOffset) String() string { return proto.CompactTextString(m) }
+func (*StreamTimeStampOffset) ProtoMessage()    {}
+func (*StreamTimeStampOffset) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f80abaa17e25ccc8, []int{3}
+}
+func (m *StreamTimeStampOffset) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *StreamTimeStampOffset) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_StreamTimeStampOffset.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *StreamTimeStampOffset) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_StreamTimeStampOffset.Merge(m, src)
+}
+func (m *StreamTimeStampOffset) XXX_Size() int {
+	return m.Size()
+}
+func (m *StreamTimeStampOffset) XXX_DiscardUnknown() {
+	xxx_messageInfo_StreamTimeStampOffset.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_StreamTimeStampOffset proto.InternalMessageInfo
+
+func (m *StreamTimeStampOffset) GetTimestampMS() int64 {
+	if m != nil {
+		return m.TimestampMS
+	}
+	return 0
+}
+
+func (m *StreamTimeStampOffset) GetOffset() int64 {
+	if m != nil {
+		return m.Offset
+	}
+	return 0
+}
+
+func (m *StreamTimeStampOffset) GetID() uint64 {
+	if m != nil {
+		return m.ID
+	}
+	return 0
+}
+
+type OffsetIndexFileTableHeader struct {
+	CreateTs             int64    `protobuf:"varint,1,opt,name=create_ts,json=createTs,proto3" json:"create_ts,omitempty"`
+	Ver                  string   `protobuf:"bytes,2,opt,name=ver,proto3" json:"ver,omitempty"`
+	Count                int32    `protobuf:"varint,3,opt,name=count,proto3" json:"count,omitempty"`
+	TsFrom               int64    `protobuf:"varint,4,opt,name=ts_from,json=tsFrom,proto3" json:"ts_from,omitempty"`
+	TsTo                 int64    `protobuf:"varint,5,opt,name=ts_to,json=tsTo,proto3" json:"ts_to,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *OffsetIndexFileTableHeader) Reset()         { *m = OffsetIndexFileTableHeader{} }
+func (m *OffsetIndexFileTableHeader) String() string { return proto.CompactTextString(m) }
+func (*OffsetIndexFileTableHeader) ProtoMessage()    {}
+func (*OffsetIndexFileTableHeader) Descriptor() ([]byte, []int) {
+	return fileDescriptor_f80abaa17e25ccc8, []int{4}
+}
+func (m *OffsetIndexFileTableHeader) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *OffsetIndexFileTableHeader) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_OffsetIndexFileTableHeader.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalToSizedBuffer(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (m *OffsetIndexFileTableHeader) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_OffsetIndexFileTableHeader.Merge(m, src)
+}
+func (m *OffsetIndexFileTableHeader) XXX_Size() int {
+	return m.Size()
+}
+func (m *OffsetIndexFileTableHeader) XXX_DiscardUnknown() {
+	xxx_messageInfo_OffsetIndexFileTableHeader.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_OffsetIndexFileTableHeader proto.InternalMessageInfo
+
+func (m *OffsetIndexFileTableHeader) GetCreateTs() int64 {
+	if m != nil {
+		return m.CreateTs
+	}
+	return 0
+}
+
+func (m *OffsetIndexFileTableHeader) GetVer() string {
+	if m != nil {
+		return m.Ver
+	}
+	return ""
+}
+
+func (m *OffsetIndexFileTableHeader) GetCount() int32 {
+	if m != nil {
+		return m.Count
+	}
+	return 0
+}
+
+func (m *OffsetIndexFileTableHeader) GetTsFrom() int64 {
+	if m != nil {
+		return m.TsFrom
+	}
+	return 0
+}
+
+func (m *OffsetIndexFileTableHeader) GetTsTo() int64 {
+	if m != nil {
+		return m.TsTo
+	}
+	return 0
+}
+
 func init() {
 	proto.RegisterType((*Entry)(nil), "yatsdb.Entry")
-	proto.RegisterType((*EntryBatch)(nil), "yatsdb.EntryBatch")
 	proto.RegisterType((*StreamOffset)(nil), "yatsdb.StreamOffset")
 	proto.RegisterType((*SegmentFooter)(nil), "yatsdb.SegmentFooter")
 	proto.RegisterMapType((map[uint64]StreamOffset)(nil), "yatsdb.SegmentFooter.StreamOffsetsEntry")
+	proto.RegisterType((*StreamTimeStampOffset)(nil), "yatsdb.StreamTimeStampOffset")
+	proto.RegisterType((*OffsetIndexFileTableHeader)(nil), "yatsdb.offset_index_file_table_header")
 }
 
 func init() { proto.RegisterFile("pb.proto", fileDescriptor_f80abaa17e25ccc8) }
 
 var fileDescriptor_f80abaa17e25ccc8 = []byte{
-	// 388 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x92, 0x41, 0xab, 0xda, 0x40,
-	0x10, 0xc7, 0xbb, 0x49, 0x9e, 0x4d, 0x47, 0xf3, 0x78, 0x2c, 0x52, 0x82, 0x05, 0x95, 0xd0, 0x43,
-	0x28, 0x98, 0x82, 0xbd, 0x94, 0xf6, 0x66, 0x6d, 0x21, 0xa7, 0xc2, 0x2a, 0x3d, 0x78, 0x91, 0x4d,
-	0xb3, 0xb1, 0x52, 0x75, 0x65, 0x77, 0x5b, 0xc8, 0xe7, 0xe9, 0x97, 0xf1, 0xd8, 0x73, 0x0f, 0x52,
-	0xfc, 0x24, 0x65, 0x67, 0x55, 0x22, 0xbd, 0xbd, 0xdb, 0xec, 0xcc, 0x7f, 0x66, 0x7e, 0xff, 0x61,
-	0x21, 0xdc, 0x17, 0xd9, 0x5e, 0x49, 0x23, 0x69, 0xab, 0xe6, 0x46, 0x97, 0x45, 0xaf, 0xbb, 0x92,
-	0x2b, 0x89, 0xa9, 0xd7, 0x36, 0x72, 0xd5, 0x64, 0x01, 0x77, 0x1f, 0x77, 0x46, 0xd5, 0x74, 0x04,
-	0xcf, 0xb4, 0x51, 0x82, 0x6f, 0x97, 0xeb, 0x32, 0x26, 0x43, 0x92, 0x06, 0x93, 0x87, 0xc3, 0x71,
-	0xf0, 0xe4, 0xcf, 0x71, 0x10, 0xce, 0xb0, 0x90, 0x4f, 0x59, 0xe8, 0x24, 0x79, 0x49, 0x29, 0x04,
-	0x25, 0x37, 0x3c, 0xf6, 0x86, 0x24, 0xed, 0x30, 0x8c, 0xe9, 0x3d, 0x78, 0xf9, 0x34, 0xf6, 0x6d,
-	0x2f, 0xf3, 0xf2, 0x69, 0xf2, 0x1e, 0x00, 0x67, 0x4f, 0xb8, 0xf9, 0xfa, 0x8d, 0x8e, 0xe0, 0xa9,
-	0xd8, 0x19, 0xb5, 0x16, 0x3a, 0x26, 0x43, 0x3f, 0x6d, 0x8f, 0xa3, 0xcc, 0x91, 0x65, 0x4e, 0x14,
-	0xd8, 0x6d, 0xec, 0xa2, 0x49, 0x6a, 0xe8, 0xb8, 0xb5, 0x9f, 0xab, 0x4a, 0x0b, 0xf3, 0x08, 0xbe,
-	0x4a, 0xc9, 0x2d, 0xf2, 0xf9, 0x0c, 0x63, 0xcb, 0x67, 0x24, 0xf2, 0xf9, 0xcc, 0x33, 0x92, 0x3e,
-	0x87, 0x96, 0xc4, 0xe1, 0x71, 0x80, 0xb9, 0xf3, 0x2b, 0xf9, 0xe5, 0x41, 0x34, 0x13, 0xab, 0xad,
-	0xd8, 0x99, 0x4f, 0x52, 0x1a, 0xa1, 0x68, 0x0f, 0xc2, 0x0f, 0x4a, 0x70, 0x23, 0xe6, 0x33, 0xdc,
-	0xed, 0xb3, 0xeb, 0x9b, 0xce, 0x21, 0xd2, 0x0d, 0x50, 0x1d, 0x7b, 0xe8, 0x2e, 0xbd, 0xb8, 0xbb,
-	0x99, 0x94, 0x35, 0x3d, 0xe9, 0xa6, 0xf1, 0xdb, 0x21, 0xf4, 0x25, 0xdc, 0x57, 0x6b, 0xa5, 0xcd,
-	0xd2, 0xde, 0xa3, 0xb6, 0x9e, 0xdd, 0x5d, 0x3b, 0x98, 0xc5, 0xc6, 0xbc, 0xa4, 0x09, 0x44, 0x1b,
-	0xde, 0x14, 0x05, 0x28, 0x6a, 0xdb, 0xe4, 0x59, 0xd3, 0xfb, 0x02, 0xf4, 0xff, 0xa5, 0xf4, 0x01,
-	0xfc, 0xef, 0xa2, 0x76, 0x87, 0x64, 0x36, 0xa4, 0xaf, 0xe0, 0xee, 0x27, 0xdf, 0xfc, 0x10, 0x78,
-	0xb2, 0xf6, 0xb8, 0x7b, 0xe5, 0x6f, 0x34, 0x33, 0x27, 0x79, 0xe7, 0xbd, 0x25, 0x93, 0x17, 0x87,
-	0x53, 0x9f, 0xfc, 0x3e, 0xf5, 0xc9, 0xdf, 0x53, 0x9f, 0x2c, 0xce, 0xf8, 0xda, 0x48, 0x25, 0xf6,
-	0x45, 0xd1, 0xc2, 0xdf, 0xf5, 0xe6, 0x5f, 0x00, 0x00, 0x00, 0xff, 0xff, 0x54, 0x8a, 0xf5, 0xb7,
-	0x87, 0x02, 0x00, 0x00,
+	// 490 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x9c, 0x53, 0xcd, 0x8a, 0x13, 0x41,
+	0x10, 0x76, 0xfe, 0x62, 0x52, 0x49, 0x96, 0xa5, 0x8d, 0x3a, 0x64, 0x21, 0x1b, 0x06, 0x0f, 0x41,
+	0x30, 0xc2, 0x7a, 0x11, 0x8f, 0x31, 0x2e, 0xcc, 0x41, 0x84, 0x9e, 0xc1, 0xc3, 0x5e, 0x86, 0x9e,
+	0x9d, 0x9e, 0x38, 0x98, 0x49, 0x87, 0xee, 0xda, 0xc5, 0xbc, 0x85, 0xe0, 0x23, 0xf8, 0x32, 0x7b,
+	0xf4, 0xec, 0x61, 0x91, 0x3c, 0x89, 0x74, 0xf7, 0x18, 0x66, 0xf1, 0x96, 0x5b, 0x55, 0x75, 0x55,
+	0x7d, 0xdd, 0xdf, 0xf7, 0x35, 0x74, 0xb7, 0xf9, 0x7c, 0x2b, 0x05, 0x0a, 0xd2, 0xd9, 0x31, 0x54,
+	0x45, 0x3e, 0x1e, 0xad, 0xc4, 0x4a, 0x98, 0xd2, 0x6b, 0x1d, 0xd9, 0xd3, 0xe8, 0x0a, 0x82, 0x0f,
+	0x1b, 0x94, 0x3b, 0xf2, 0x0a, 0x7a, 0x0a, 0x25, 0x67, 0x75, 0x56, 0x15, 0xa1, 0x33, 0x75, 0x66,
+	0xfe, 0xe2, 0xf4, 0xee, 0xfe, 0xfc, 0xd1, 0xef, 0xfb, 0xf3, 0x6e, 0x62, 0x0e, 0xe2, 0x25, 0xed,
+	0xda, 0x96, 0xb8, 0x20, 0x04, 0xfc, 0x82, 0x21, 0x0b, 0xdd, 0xa9, 0x33, 0x1b, 0x50, 0x13, 0x93,
+	0x13, 0x70, 0xe3, 0x65, 0xe8, 0xe9, 0x59, 0xea, 0xc6, 0xcb, 0x68, 0x07, 0x03, 0x3b, 0xf9, 0xa9,
+	0x2c, 0x15, 0xc7, 0x23, 0x20, 0x4a, 0x29, 0x6a, 0x03, 0xe1, 0x51, 0x13, 0x6b, 0x08, 0x14, 0x06,
+	0xc2, 0xa3, 0x2e, 0x0a, 0xf2, 0x0c, 0x3a, 0xc2, 0x2c, 0x0f, 0x7d, 0x53, 0x6b, 0xb2, 0xe8, 0xa7,
+	0x0b, 0xc3, 0x84, 0xaf, 0x6a, 0xbe, 0xc1, 0x4b, 0x21, 0x90, 0x4b, 0x32, 0x86, 0xee, 0x7b, 0xc9,
+	0x19, 0xf2, 0x34, 0x31, 0xd8, 0x1e, 0x3d, 0xe4, 0x24, 0x85, 0xa1, 0x6a, 0x5d, 0x54, 0x85, 0xee,
+	0xd4, 0x9b, 0xf5, 0x2f, 0x66, 0x73, 0x4b, 0xdd, 0xfc, 0xc1, 0xa6, 0x79, 0xfb, 0x4d, 0xca, 0x90,
+	0xb7, 0xf0, 0xf5, 0x33, 0xe8, 0xc3, 0x25, 0xe4, 0x05, 0x9c, 0x94, 0x95, 0x54, 0x98, 0x71, 0xdd,
+	0xa3, 0xdf, 0x6c, 0xa9, 0x19, 0x98, 0xaa, 0x19, 0x8c, 0x0b, 0x12, 0xc1, 0x70, 0xcd, 0xda, 0x4d,
+	0xbe, 0x69, 0xea, 0xeb, 0x62, 0xd3, 0x33, 0xfe, 0x0c, 0xe4, 0x7f, 0x50, 0x72, 0x0a, 0xde, 0x57,
+	0xbe, 0xb3, 0x44, 0x52, 0x1d, 0x92, 0x97, 0x10, 0xdc, 0xb2, 0xf5, 0x0d, 0x37, 0x94, 0xf5, 0x2f,
+	0x46, 0x87, 0xfb, 0xb7, 0x86, 0xa9, 0x6d, 0x79, 0xe7, 0xbe, 0x75, 0xa2, 0xef, 0x0e, 0x3c, 0xb5,
+	0x67, 0x69, 0x55, 0xf3, 0x04, 0x59, 0xbd, 0x3d, 0x4e, 0xaa, 0x29, 0xf4, 0xf5, 0x06, 0xa5, 0x37,
+	0x7c, 0x4c, 0x1a, 0xc5, 0xda, 0x25, 0x2d, 0x94, 0x5d, 0xdd, 0x88, 0xd7, 0x64, 0x8d, 0x67, 0xfc,
+	0x83, 0x67, 0x7e, 0x38, 0x30, 0xb1, 0x1a, 0x66, 0xd5, 0xa6, 0xe0, 0xdf, 0xb2, 0xb2, 0x5a, 0xf3,
+	0x0c, 0x59, 0xbe, 0xe6, 0xd9, 0x17, 0xce, 0x0a, 0x2e, 0xc9, 0x19, 0xf4, 0xae, 0x8d, 0x72, 0x19,
+	0xaa, 0x7f, 0x52, 0xda, 0x42, 0xaa, 0x34, 0x29, 0xb7, 0x5c, 0x9a, 0x1b, 0xf4, 0xa8, 0x0e, 0xc9,
+	0x08, 0x82, 0x6b, 0x71, 0xb3, 0xb1, 0xc0, 0x01, 0xb5, 0x09, 0x79, 0x0e, 0x8f, 0x51, 0x65, 0xc6,
+	0x5f, 0x8d, 0x73, 0x50, 0x5d, 0x6a, 0x87, 0x3d, 0x81, 0x00, 0x55, 0x86, 0x22, 0x0c, 0xac, 0xed,
+	0x50, 0xa5, 0x62, 0x71, 0x76, 0xb7, 0x9f, 0x38, 0xbf, 0xf6, 0x13, 0xe7, 0xcf, 0x7e, 0xe2, 0x5c,
+	0x35, 0x3a, 0x2b, 0x14, 0x92, 0x6f, 0xf3, 0xbc, 0x63, 0x7e, 0xd2, 0x9b, 0xbf, 0x01, 0x00, 0x00,
+	0xff, 0xff, 0xb2, 0x06, 0xb3, 0x58, 0x73, 0x03, 0x00, 0x00,
 }
 
 func (m *Entry) Marshal() (dAtA []byte, err error) {
@@ -346,47 +452,6 @@ func (m *Entry) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 		i = encodeVarintPb(dAtA, i, uint64(m.StreamId))
 		i--
 		dAtA[i] = 0x8
-	}
-	return len(dAtA) - i, nil
-}
-
-func (m *EntryBatch) Marshal() (dAtA []byte, err error) {
-	size := m.Size()
-	dAtA = make([]byte, size)
-	n, err := m.MarshalToSizedBuffer(dAtA[:size])
-	if err != nil {
-		return nil, err
-	}
-	return dAtA[:n], nil
-}
-
-func (m *EntryBatch) MarshalTo(dAtA []byte) (int, error) {
-	size := m.Size()
-	return m.MarshalToSizedBuffer(dAtA[:size])
-}
-
-func (m *EntryBatch) MarshalToSizedBuffer(dAtA []byte) (int, error) {
-	i := len(dAtA)
-	_ = i
-	var l int
-	_ = l
-	if m.XXX_unrecognized != nil {
-		i -= len(m.XXX_unrecognized)
-		copy(dAtA[i:], m.XXX_unrecognized)
-	}
-	if len(m.Entries) > 0 {
-		for iNdEx := len(m.Entries) - 1; iNdEx >= 0; iNdEx-- {
-			{
-				size, err := m.Entries[iNdEx].MarshalToSizedBuffer(dAtA[:i])
-				if err != nil {
-					return 0, err
-				}
-				i -= size
-				i = encodeVarintPb(dAtA, i, uint64(size))
-			}
-			i--
-			dAtA[i] = 0xa
-		}
 	}
 	return len(dAtA) - i, nil
 }
@@ -502,6 +567,107 @@ func (m *SegmentFooter) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	return len(dAtA) - i, nil
 }
 
+func (m *StreamTimeStampOffset) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *StreamTimeStampOffset) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *StreamTimeStampOffset) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.ID != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.ID))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.Offset != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.Offset))
+		i--
+		dAtA[i] = 0x18
+	}
+	if m.TimestampMS != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.TimestampMS))
+		i--
+		dAtA[i] = 0x10
+	}
+	if m.StreamId != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.StreamId))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
+func (m *OffsetIndexFileTableHeader) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalToSizedBuffer(dAtA[:size])
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *OffsetIndexFileTableHeader) MarshalTo(dAtA []byte) (int, error) {
+	size := m.Size()
+	return m.MarshalToSizedBuffer(dAtA[:size])
+}
+
+func (m *OffsetIndexFileTableHeader) MarshalToSizedBuffer(dAtA []byte) (int, error) {
+	i := len(dAtA)
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i -= len(m.XXX_unrecognized)
+		copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	if m.TsTo != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.TsTo))
+		i--
+		dAtA[i] = 0x28
+	}
+	if m.TsFrom != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.TsFrom))
+		i--
+		dAtA[i] = 0x20
+	}
+	if m.Count != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.Count))
+		i--
+		dAtA[i] = 0x18
+	}
+	if len(m.Ver) > 0 {
+		i -= len(m.Ver)
+		copy(dAtA[i:], m.Ver)
+		i = encodeVarintPb(dAtA, i, uint64(len(m.Ver)))
+		i--
+		dAtA[i] = 0x12
+	}
+	if m.CreateTs != 0 {
+		i = encodeVarintPb(dAtA, i, uint64(m.CreateTs))
+		i--
+		dAtA[i] = 0x8
+	}
+	return len(dAtA) - i, nil
+}
+
 func encodeVarintPb(dAtA []byte, offset int, v uint64) int {
 	offset -= sovPb(v)
 	base := offset
@@ -528,24 +694,6 @@ func (m *Entry) Size() (n int) {
 	}
 	if m.ID != 0 {
 		n += 1 + sovPb(uint64(m.ID))
-	}
-	if m.XXX_unrecognized != nil {
-		n += len(m.XXX_unrecognized)
-	}
-	return n
-}
-
-func (m *EntryBatch) Size() (n int) {
-	if m == nil {
-		return 0
-	}
-	var l int
-	_ = l
-	if len(m.Entries) > 0 {
-		for _, e := range m.Entries {
-			l = e.Size()
-			n += 1 + l + sovPb(uint64(l))
-		}
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -600,6 +748,58 @@ func (m *SegmentFooter) Size() (n int) {
 	}
 	if m.LastEntryId != 0 {
 		n += 1 + sovPb(uint64(m.LastEntryId))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *StreamTimeStampOffset) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.StreamId != 0 {
+		n += 1 + sovPb(uint64(m.StreamId))
+	}
+	if m.TimestampMS != 0 {
+		n += 1 + sovPb(uint64(m.TimestampMS))
+	}
+	if m.Offset != 0 {
+		n += 1 + sovPb(uint64(m.Offset))
+	}
+	if m.ID != 0 {
+		n += 1 + sovPb(uint64(m.ID))
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *OffsetIndexFileTableHeader) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.CreateTs != 0 {
+		n += 1 + sovPb(uint64(m.CreateTs))
+	}
+	l = len(m.Ver)
+	if l > 0 {
+		n += 1 + l + sovPb(uint64(l))
+	}
+	if m.Count != 0 {
+		n += 1 + sovPb(uint64(m.Count))
+	}
+	if m.TsFrom != 0 {
+		n += 1 + sovPb(uint64(m.TsFrom))
+	}
+	if m.TsTo != 0 {
+		n += 1 + sovPb(uint64(m.TsTo))
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -714,91 +914,6 @@ func (m *Entry) Unmarshal(dAtA []byte) error {
 					break
 				}
 			}
-		default:
-			iNdEx = preIndex
-			skippy, err := skipPb(dAtA[iNdEx:])
-			if err != nil {
-				return err
-			}
-			if (skippy < 0) || (iNdEx+skippy) < 0 {
-				return ErrInvalidLengthPb
-			}
-			if (iNdEx + skippy) > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
-			iNdEx += skippy
-		}
-	}
-
-	if iNdEx > l {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-func (m *EntryBatch) Unmarshal(dAtA []byte) error {
-	l := len(dAtA)
-	iNdEx := 0
-	for iNdEx < l {
-		preIndex := iNdEx
-		var wire uint64
-		for shift := uint(0); ; shift += 7 {
-			if shift >= 64 {
-				return ErrIntOverflowPb
-			}
-			if iNdEx >= l {
-				return io.ErrUnexpectedEOF
-			}
-			b := dAtA[iNdEx]
-			iNdEx++
-			wire |= uint64(b&0x7F) << shift
-			if b < 0x80 {
-				break
-			}
-		}
-		fieldNum := int32(wire >> 3)
-		wireType := int(wire & 0x7)
-		if wireType == 4 {
-			return fmt.Errorf("proto: EntryBatch: wiretype end group for non-group")
-		}
-		if fieldNum <= 0 {
-			return fmt.Errorf("proto: EntryBatch: illegal tag %d (wire type %d)", fieldNum, wire)
-		}
-		switch fieldNum {
-		case 1:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Entries", wireType)
-			}
-			var msglen int
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowPb
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := dAtA[iNdEx]
-				iNdEx++
-				msglen |= int(b&0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			if msglen < 0 {
-				return ErrInvalidLengthPb
-			}
-			postIndex := iNdEx + msglen
-			if postIndex < 0 {
-				return ErrInvalidLengthPb
-			}
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.Entries = append(m.Entries, Entry{})
-			if err := m.Entries[len(m.Entries)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
-				return err
-			}
-			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipPb(dAtA[iNdEx:])
@@ -1145,6 +1260,292 @@ func (m *SegmentFooter) Unmarshal(dAtA []byte) error {
 				b := dAtA[iNdEx]
 				iNdEx++
 				m.LastEntryId |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipPb(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthPb
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *StreamTimeStampOffset) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowPb
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: StreamTimeStampOffset: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: StreamTimeStampOffset: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field StreamId", wireType)
+			}
+			m.StreamId = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.StreamId |= StreamID(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TimestampMS", wireType)
+			}
+			m.TimestampMS = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TimestampMS |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Offset", wireType)
+			}
+			m.Offset = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Offset |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ID", wireType)
+			}
+			m.ID = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.ID |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipPb(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if (skippy < 0) || (iNdEx+skippy) < 0 {
+				return ErrInvalidLengthPb
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *OffsetIndexFileTableHeader) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowPb
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= uint64(b&0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: offset_index_file_table_header: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: offset_index_file_table_header: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field CreateTs", wireType)
+			}
+			m.CreateTs = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.CreateTs |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 2:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Ver", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				stringLen |= uint64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthPb
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex < 0 {
+				return ErrInvalidLengthPb
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Ver = string(dAtA[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 3:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Count", wireType)
+			}
+			m.Count = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Count |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 4:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TsFrom", wireType)
+			}
+			m.TsFrom = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TsFrom |= int64(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TsTo", wireType)
+			}
+			m.TsTo = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowPb
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.TsTo |= int64(b&0x7F) << shift
 				if b < 0x80 {
 					break
 				}

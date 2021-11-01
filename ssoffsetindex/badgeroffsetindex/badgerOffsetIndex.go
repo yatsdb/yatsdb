@@ -1,4 +1,4 @@
-package ssoffsetindex
+package badgeroffsetindex
 
 import (
 	"context"
@@ -11,32 +11,8 @@ import (
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	"github.com/yatsdb/yatsdb/pkg/metrics"
+	. "github.com/yatsdb/yatsdb/ssoffsetindex"
 )
-
-type StreamID = invertedindex.StreamID
-
-type StreamTimestampOffsetGetter interface {
-	//LE less or equal
-	GetStreamTimestampOffset(streamID StreamID, timestampMS int64, LE bool) (int64, error)
-}
-type OffsetIndexUpdater interface {
-	SetStreamTimestampOffset(offset SeriesStreamOffset, callback func(err error))
-}
-
-//SeriesStreamOffset
-type SeriesStreamOffset struct {
-	//metrics stream ID
-	StreamID StreamID
-	//TimestampMS time series samples timestamp
-	TimestampMS int64
-	//Offset stream offset
-	Offset int64
-}
-
-type OffsetDB interface {
-	StreamTimestampOffsetGetter
-	OffsetIndexUpdater
-}
 
 type SeriesStreamOffsetIndex struct {
 	db      *badger.DB
@@ -82,8 +58,6 @@ func OpenStreamTimestampOffsetIndex(ctx context.Context, storePath string) (*Ser
 		batcher: batcher,
 	}, nil
 }
-
-var ErrNoFindOffset = errors.New("streamID offset no find ")
 
 func (index *SeriesStreamOffsetIndex) GetStreamTimestampOffset(streamID StreamID, timestampMS int64, LE bool) (int64, error) {
 	var offset int64
@@ -145,7 +119,7 @@ func (index *SeriesStreamOffsetIndex) SetStreamTimestampOffset(offset SeriesStre
 		fn(nil)
 		return
 	}
-	
+
 	metrics.UpdateOffsetIndexCount.Inc()
 
 	index.batcher.Update(badgerbatcher.BadgerOP{

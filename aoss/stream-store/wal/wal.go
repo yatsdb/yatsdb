@@ -16,14 +16,16 @@ import (
 )
 
 type Wal interface {
-	Write(entry streamstorepb.Entry, fn func(ID uint64, err error))
+	Write(entry Entry)
 	Close() error
 	ClearLogFiles(ID uint64)
 }
 
-type Entry struct {
-	entry streamstorepb.Entry
-	fn    func(uint64, error)
+type Entry interface {
+	//entry streamstorepb.Entry
+	Fn(uint64, error)
+	SetID(uint64)
+	streamstorepb.EntryTyper
 }
 
 var _ Wal = (*wal)(nil)
@@ -163,9 +165,9 @@ func syncEntriesCb(entriesSynces []EntriesSync, err error) {
 	for _, sync := range entriesSynces {
 		for _, entry := range sync.entries {
 			if err != nil {
-				entry.fn(0, err)
+				entry.Fn(0, err)
 			} else {
-				entry.fn(entry.entry.ID, nil)
+				entry.Fn(entry.GetID(), nil)
 			}
 		}
 	}
@@ -174,7 +176,7 @@ func syncEntriesCb(entriesSynces []EntriesSync, err error) {
 func entriesCb(entries []Entry, err error) {
 	for _, entry := range entries {
 		if err != nil {
-			entry.fn(0, err)
+			entry.Fn(0, err)
 		}
 	}
 }
@@ -199,7 +201,9 @@ func (wal *wal) startWriteEntryGoroutine() {
 			var entries []Entry
 			select {
 			case entry := <-wal.entryCh:
-				entry.entry.ID = wal.nextEntryID()
+				ID := wal.nextEntryID()
+				entry.SetID(ID)
+				file.SetFirstEntryID(ID)
 				entries = append(entries, entry)
 			case <-wal.ctx.Done():
 				entriesCb(entries, wal.ctx.Err())
@@ -208,7 +212,9 @@ func (wal *wal) startWriteEntryGoroutine() {
 			for {
 				select {
 				case entry := <-wal.entryCh:
-					entry.entry.ID = wal.nextEntryID()
+					ID := wal.nextEntryID()
+					entry.SetID(ID)
+					file.SetFirstEntryID(ID)
 					entries = append(entries, entry)
 					if len(entries) < wal.BatchSize {
 						continue
@@ -217,17 +223,11 @@ func (wal *wal) startWriteEntryGoroutine() {
 				}
 				break
 			}
-
-			var batch streamstorepb.EntryBatch
-			batch.Entries = make([]streamstorepb.Entry, 0, len(entries))
 			for _, entry := range entries {
-				batch.Entries = append(batch.Entries, entry.entry)
-			}
-
-			file.SetFirstEntryID(batch.Entries[0].ID)
-			if err := encoder.Encode(&batch); err != nil {
-				logrus.Panicf("encode entries failed %+v", err)
-				continue
+				if err := encoder.Encode(entry); err != nil {
+					logrus.Panicf("encode entries failed %+v", err)
+					continue
+				}
 			}
 
 			select {
@@ -241,7 +241,7 @@ func (wal *wal) startWriteEntryGoroutine() {
 			}
 
 			if file.Size() > int64(wal.MaxLogSize) {
-				file.SetLastEntryID(batch.Entries[len(batch.Entries)-1].ID)
+				file.SetLastEntryID(entries[len(entries)-1].GetID())
 				filename := file.Filename()
 				if err := file.Rename(); err != nil {
 					logrus.Panicf("rename wal failed %+v", err)
@@ -313,13 +313,10 @@ func (wal *wal) getLogFile() (LogFile, error) {
 	}
 }
 
-func (wal *wal) Write(entry streamstorepb.Entry, fn func(entryID uint64, err error)) {
+func (wal *wal) Write(entry Entry) {
 	select {
-	case wal.entryCh <- Entry{
-		entry: entry,
-		fn:    fn,
-	}:
+	case wal.entryCh <- entry:
 	case <-wal.ctx.Done():
-		fn(0, wal.ctx.Err())
+		entry.Fn(0, wal.ctx.Err())
 	}
 }

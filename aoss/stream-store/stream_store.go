@@ -126,9 +126,10 @@ func Open(options Options) (*StreamStore, error) {
 		lastEntryID = segment.LastEntryID()
 	}
 
+	ss.wg.Add(2 + ss.CallbackRoutines)
+
 	ss.mtable = newMTable(ss.omap)
 	ss.appendMtable(ss.mtable)
-	ss.wg.Add(3)
 	ss.startWriteEntryRoutine()
 	ss.startFlushMTableRoutine()
 	for i := 0; i < ss.CallbackRoutines; i++ {
@@ -165,14 +166,15 @@ func Open(options Options) (*StreamStore, error) {
 	var wg sync.WaitGroup
 	var reloadCount int64
 	var begin = time.Now()
-	ss.wal, err = wal.Reload(options.WalOptions, func(e streamstorepb.Entry) error {
+	ss.wal, err = wal.Reload(options.WalOptions, func(typ streamstorepb.EntryTyper) error {
+		e := typ.(*streamstorepb.Entry)
 		if e.ID <= lastEntryID {
 			return nil
 		}
 		wg.Add(1)
 		reloadCount++
 		ss.appendEntryCh <- appendEntry{
-			entry: e,
+			entry: *e,
 			fn: func(offset int64, err error) {
 				wg.Done()
 				if err != nil {
@@ -207,16 +209,31 @@ func (ss *StreamStore) AppendSync(streamID StreamID, data []byte) (offset int64,
 	res := <-ch
 	return res.offset, res.err
 }
+
+type EntryWithFn struct {
+	streamstorepb.Entry
+	fn func(ID uint64, err error)
+}
+
+func (entry *EntryWithFn) SetID(ID uint64) {
+	entry.ID = ID
+}
+func (entry *EntryWithFn) Fn(ID uint64, err error) {
+	entry.fn(ID, err)
+}
+
 func (ss *StreamStore) Append(streamID StreamID, data []byte, fn AppendCallbackFn) {
-	ss.wal.Write(streamstorepb.Entry{
-		StreamId: streamID,
-		Data:     data,
-	}, func(ID uint64, err error) {
-		ss.appendEntry(streamstorepb.Entry{
+	ss.wal.Write(&EntryWithFn{
+		streamstorepb.Entry{
 			StreamId: streamID,
 			Data:     data,
-			ID:       ID,
-		}, fn)
+		}, func(ID uint64, err error) {
+			ss.appendEntry(streamstorepb.Entry{
+				StreamId: streamID,
+				Data:     data,
+				ID:       ID,
+			}, fn)
+		},
 	})
 }
 

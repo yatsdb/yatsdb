@@ -19,7 +19,7 @@ import (
 	"github.com/yatsdb/yatsdb/pkg/metrics"
 )
 
-func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
+func Reload(options Options, fn func(streamstorepb.EntryTyper) error) (*wal, error) {
 	type FileInfo struct {
 		firstID uint64
 		lastID  uint64
@@ -31,7 +31,7 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 	var fileInfos []*FileInfo
 	err := filepath.Walk(options.Dir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 		if info.IsDir() {
 			return nil
@@ -84,14 +84,14 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 	for i, fileInfo := range fileInfos {
 		logrus.WithField("filename", fileInfo.f.Name()).Info("reload wal log")
 		//range entries
-		iter := newEntryIteractor(newDecoder(fileInfo.f))
+		iter := newDecoder(fileInfo.f)
 		for {
 			//last success write offset
 			offset, err := fileInfo.f.Seek(0, 1)
 			if err != nil {
 				return nil, err
 			}
-			entry, err := iter.Next()
+			entry, err := iter.Decode()
 			if err != nil {
 				if err == io.EOF {
 					break
@@ -109,10 +109,10 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 				return nil, err
 			}
 			if fileInfo.firstID == 0 {
-				fileInfo.firstID = entry.ID
+				fileInfo.firstID = entry.GetID()
 			}
-			fileInfo.lastID = entry.ID
-			w.entryID = entry.ID
+			fileInfo.lastID = entry.GetID()
+			w.entryID = entry.GetID()
 		}
 
 		//close files
@@ -147,20 +147,25 @@ func Reload(options Options, fn func(streamstorepb.Entry) error) (*wal, error) {
 		w.createLogIndex = index
 	}
 
-	metrics.WalLogFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-		Namespace: "yatsdb",
-		Subsystem: "stream_store_wal",
-		Name:      "log_files",
-		Help:      "total of stream-store wal log files",
-	}, func() float64 {
-		return float64(w.getLogFiles())
-	})
+	if metrics.WalLogFiles == nil {
+		metrics.WalLogFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Namespace: "yatsdb",
+			Subsystem: "stream_store_wal",
+			Name:      "log_files",
+			Help:      "total of stream-store wal log files",
+		}, func() float64 {
+			return float64(w.getLogFiles())
+		})
+	}
 
 	w.startCreatLogFileRoutine()
 	w.startSyncEntriesGoroutine()
 	w.startWriteEntryGoroutine()
 
-	logrus.Infof("reload wal success last entry ID %d", w.entryID)
+	logrus.WithFields(logrus.Fields{
+		"entryID": w.entryID,
+		"dir":     options.Dir,
+	}).Info("reload wal success")
 
 	return &w, nil
 }
