@@ -10,6 +10,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/prometheus/prometheus/tsdb/fileutil"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 	"github.com/yatsdb/yatsdb/aoss/stream-store/wal"
 	"github.com/yatsdb/yatsdb/ssoffsetindex"
@@ -634,6 +635,1197 @@ func Test_parseTimestamp(t *testing.T) {
 			}
 			if gotTo != tt.wantTo {
 				t.Errorf("parseTimestamp() gotTo = %v, want %v", gotTo, tt.wantTo)
+			}
+		})
+	}
+}
+
+func createWal(dir string) wal.Wal {
+	_ = os.MkdirAll(dir, 0777)
+	w, err := wal.Reload(wal.DefaultOption(dir), nil)
+	if err != nil {
+		panic(err.Error())
+	}
+	return w
+}
+
+func TestDB_SetStreamTimestampOffset(t *testing.T) {
+	t.Cleanup(func() {
+		os.RemoveAll(t.Name())
+	})
+	type fields struct {
+		Options            Options
+		offsetTables       *[]STOffsetTable
+		flushTables        *[]STOffsetTable
+		FileSTOffsetTables *[]FileSTOffsetTable
+	}
+	type args struct {
+		entry    ssoffsetindex.SeriesStreamOffset
+		callback func(err error)
+	}
+	tests := []struct {
+		name   string
+		fields fields
+		args   args
+	}{
+		{
+			name: "",
+			fields: fields{
+				Options: Options{},
+				offsetTables: &[]STOffsetTable{
+					{
+						WalDir: t.Name() + "/1-10",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   10,
+						},
+						Offsets:      map[ssoffsetindex.StreamID]int64{},
+						wal:          createWal(t.Name() + "/1-10"),
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				flushTables:        &[]STOffsetTable{},
+				FileSTOffsetTables: &[]FileSTOffsetTable{},
+			},
+			args: args{
+				entry: ssoffsetindex.SeriesStreamOffset{
+					StreamID:    1,
+					TimestampMS: 1,
+					Offset:      1,
+				},
+				callback: func(err error) {
+					assert.NoError(t, err)
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &DB{
+				Options:            tt.fields.Options,
+				offsetTables:       tt.fields.offsetTables,
+				flushTables:        tt.fields.flushTables,
+				FileSTOffsetTables: tt.fields.FileSTOffsetTables,
+			}
+			db.SetStreamTimestampOffset(tt.args.entry, tt.args.callback)
+			assert.Equal(t, db.getOffsetTables()[0].Offsets[tt.args.entry.StreamID], tt.args.entry.Offset)
+		})
+	}
+}
+
+func TestDB_GetStreamTimestampOffset(t *testing.T) {
+	type fields struct {
+		Options            Options
+		offsetTables       *[]STOffsetTable
+		flushTables        *[]STOffsetTable
+		FileSTOffsetTables *[]FileSTOffsetTable
+	}
+	type args struct {
+		streamID    ssoffsetindex.StreamID
+		timestampMS int64
+		LE          bool
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    int64
+		wantErr bool
+	}{
+		{
+			name: "fileSTOffsetTables_ts_1",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables:  &[]STOffsetTable{},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 1,
+			},
+			want:    3,
+			wantErr: false,
+		},
+		{
+
+			name: "fileSTOffsetTables_ts_0",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables:  &[]STOffsetTable{},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 0,
+			},
+			want:    0,
+			wantErr: true,
+		},
+		{
+
+			name: "fileSTOffsetTables_ts_99",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables:  &[]STOffsetTable{},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 99,
+			},
+			want:    3,
+			wantErr: false,
+		},
+		{
+
+			name: "fileSTOffsetTables_ts_100",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables:  &[]STOffsetTable{},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 100,
+			},
+			want:    30,
+			wantErr: false,
+		},
+		{
+
+			name: "fileSTOffsetTables_ts_200",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables:  &[]STOffsetTable{},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 100,
+			},
+			want:    30,
+			wantErr: false,
+		},
+		{
+
+			name: "fileSTOffsetTables_ts_1000",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables:  &[]STOffsetTable{},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 1000,
+			},
+			want:    30,
+			wantErr: false,
+		},
+		{
+
+			name: "flushTables_ts_200",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 200,
+							To:   300,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 100,
+							2: 200,
+							3: 300,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 1000,
+			},
+			want:    300,
+			wantErr: false,
+		},
+		{
+
+			name: "flushTables_ts_300",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 200,
+							To:   300,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 100,
+							2: 200,
+							3: 300,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 1000,
+			},
+			want:    300,
+			wantErr: false,
+		},
+		{
+
+			name: "flushTables_ts_400",
+			fields: fields{
+				Options:      Options{},
+				offsetTables: &[]STOffsetTable{},
+				flushTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 200,
+							To:   300,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 100,
+							2: 200,
+							3: 300,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 300,
+							To:   400,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 1000,
+							2: 2000,
+							3: 3000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 1000,
+			},
+			want:    3000,
+			wantErr: false,
+		},
+		{
+
+			name: "offsetTables_ts_500",
+			fields: fields{
+				Options: Options{},
+				offsetTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 500,
+							To:   600,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 10000,
+							2: 20000,
+							3: 30000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				flushTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 200,
+							To:   300,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 100,
+							2: 200,
+							3: 300,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 300,
+							To:   400,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 1000,
+							2: 2000,
+							3: 3000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 500,
+			},
+			want:    30000,
+			wantErr: false,
+		},
+		{
+
+
+			name: "offsetTables_ts_600",
+			fields: fields{
+				Options: Options{},
+				offsetTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 500,
+							To:   600,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 10000,
+							2: 20000,
+							3: 30000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+					{
+
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 600,
+							To:   700,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 11000,
+							2: 22000,
+							3: 33000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					
+					},
+				},
+				flushTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 200,
+							To:   300,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 100,
+							2: 200,
+							3: 300,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 300,
+							To:   400,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 1000,
+							2: 2000,
+							3: 3000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 600,
+			},
+			want:    33000,
+			wantErr: false,
+		},
+		{
+
+
+
+			name: "offsetTables_ts_700",
+			fields: fields{
+				Options: Options{},
+				offsetTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 500,
+							To:   600,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 10000,
+							2: 20000,
+							3: 30000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+					{
+
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 600,
+							To:   700,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 11000,
+							2: 22000,
+							3: 33000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					
+					},
+				},
+				flushTables: &[]STOffsetTable{
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 200,
+							To:   300,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 100,
+							2: 200,
+							3: 300,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+					{
+						WalDir: "",
+						Timestamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 300,
+							To:   400,
+						},
+						Offsets: map[ssoffsetindex.StreamID]int64{
+							1: 1000,
+							2: 2000,
+							3: 3000,
+						},
+						wal:          nil,
+						tablesLocker: &sync.Mutex{},
+					},
+				},
+				FileSTOffsetTables: &[]FileSTOffsetTable{
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 1,
+							To:   100,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   1,
+							},
+							{
+								StreamId: 2,
+								Offset:   2,
+							},
+							{
+								StreamId: 3,
+								Offset:   3,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "1-100.table",
+					},
+					{
+						TimeStamp: struct {
+							From int64
+							To   int64
+						}{
+							From: 100,
+							To:   200,
+						},
+						STOffsets: []STOffset{
+							{
+								StreamId: 1,
+								Offset:   10,
+							},
+							{
+								StreamId: 2,
+								Offset:   20,
+							},
+							{
+								StreamId: 3,
+								Offset:   30,
+							},
+						},
+						mfile:    &fileutil.MmapFile{},
+						filename: "100-200.table",
+					},
+				},
+			},
+			args: args{
+				streamID:    3,
+				timestampMS: 600,
+			},
+			want:    33000,
+			wantErr: false,
+		
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &DB{
+				Options:            tt.fields.Options,
+				offsetTables:       tt.fields.offsetTables,
+				flushTables:        tt.fields.flushTables,
+				FileSTOffsetTables: tt.fields.FileSTOffsetTables,
+			}
+			got, err := db.GetStreamTimestampOffset(tt.args.streamID, tt.args.timestampMS, tt.args.LE)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("DB.GetStreamTimestampOffset() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("DB.GetStreamTimestampOffset() = %v, want %v", got, tt.want)
 			}
 		})
 	}

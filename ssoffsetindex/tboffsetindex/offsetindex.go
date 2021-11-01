@@ -88,6 +88,9 @@ func (db *DB) getFlushTables() []STOffsetTable {
 	return *(*[]STOffsetTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&db.flushTables))))
 }
 func (db *DB) setFlushTables(tables []STOffsetTable) {
+	sort.Slice(tables, func(i, j int) bool {
+		return tables[i].Timestamp.From < tables[j].Timestamp.From
+	})
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&db.flushTables)), unsafe.Pointer(&tables))
 }
 
@@ -336,39 +339,43 @@ func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestam
 	flushTables := db.getFlushTables()
 	fileSTOffsetTables := db.getFileSTOffsetTables()
 
-	if len(fileSTOffsetTables) != 0 {
-		if timestampMS <= fileSTOffsetTables[len(fileSTOffsetTables)-1].TimeStamp.From {
-			i := sort.Search(len(fileSTOffsetTables), func(i int) bool {
-				return timestampMS <= fileSTOffsetTables[i].TimeStamp.From
-			})
-			for ; i >= 0; i-- {
-				offsets := fileSTOffsetTables[i].STOffsets
-				k := sort.Search(len(offsets), func(j int) bool {
-					return streamID <= offsets[j].StreamId
-				})
-				if k < len(offsets) && streamID == offsets[k].StreamId {
-					return fileSTOffsetTables[i].TimeStamp.From, nil
-				}
-			}
-		}
-	}
-
-	for i := len(flushTables) - 1; i >= 0; i++ {
-		if flushTables[i].Timestamp.To <= timestampMS {
-			if offset, ok := flushTables[i].Offsets[streamID]; ok {
-				return offset, nil
-			}
-		}
-	}
-	for _, table := range offsetTables {
+	for i := len(offsetTables) - 1; i >= 0; i-- {
+		table := offsetTables[i]
 		table.tablesLocker.Lock()
-		if table.Timestamp.From <= timestampMS && timestampMS < table.Timestamp.To {
+		if table.Timestamp.From <= timestampMS {
 			if offset, ok := table.Offsets[streamID]; ok {
 				table.tablesLocker.Unlock()
 				return offset, nil
 			}
 		}
 		table.tablesLocker.Unlock()
+	}
+
+	for i := len(flushTables) - 1; i >= 0; i-- {
+		table := flushTables[i]
+		if table.Timestamp.From <= timestampMS {
+			if offset, ok := table.Offsets[streamID]; ok {
+				return offset, nil
+			}
+		}
+	}
+
+	i := sort.Search(len(fileSTOffsetTables), func(i int) bool {
+		return timestampMS <= fileSTOffsetTables[i].TimeStamp.From
+	})
+	if i >= len(fileSTOffsetTables) {
+		i = len(fileSTOffsetTables) - 1
+	}
+	for ; i >= 0; i-- {
+		if fileSTOffsetTables[i].TimeStamp.From <= timestampMS {
+			offsets := fileSTOffsetTables[i].STOffsets
+			k := sort.Search(len(offsets), func(j int) bool {
+				return streamID <= offsets[j].StreamId
+			})
+			if k < len(offsets) && streamID == offsets[k].StreamId {
+				return offsets[k].Offset, nil
+			}
+		}
 	}
 	return 0, ssoffsetindex.ErrNoFindOffset
 }
@@ -378,11 +385,11 @@ func (db *DB) SetStreamTimestampOffset(entry ssoffsetindex.SeriesStreamOffset, c
 		table.tablesLocker.Lock()
 		if table.Timestamp.From <= entry.TimestampMS && entry.TimestampMS < table.Timestamp.To {
 			if _, ok := table.Offsets[entry.StreamID]; ok {
-				table.tablesLocker.Lock()
+				table.tablesLocker.Unlock()
 				return
 			} else {
 				table.Offsets[entry.StreamID] = entry.Offset
-				table.tablesLocker.Lock()
+				table.tablesLocker.Unlock()
 				table.wal.Write(&STOffsetEntry{
 					StreamTimeStampOffset: streamstorepb.StreamTimeStampOffset{
 						StreamId:    0,
@@ -397,7 +404,7 @@ func (db *DB) SetStreamTimestampOffset(entry ssoffsetindex.SeriesStreamOffset, c
 				return
 			}
 		}
-		table.tablesLocker.Lock()
+		table.tablesLocker.Unlock()
 	}
 }
 
