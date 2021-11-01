@@ -1,6 +1,7 @@
 package tboffsetindex
 
 import (
+	"context"
 	"encoding/binary"
 	"io/fs"
 	"os"
@@ -27,6 +28,10 @@ type DB struct {
 	offsetTables       *[]STOffsetTable
 	flushTables        *[]STOffsetTable
 	FileSTOffsetTables *[]FileSTOffsetTable
+
+	wg     sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type Options struct {
@@ -243,10 +248,14 @@ func (db *DB) clearFileTables() {
 }
 func (db *DB) startTickerRoutine() {
 	ticker := time.NewTicker(time.Second)
+	db.wg.Add(1)
 	go func() {
+		defer db.wg.Done()
 		for {
 			select {
 			case <-ticker.C:
+			case <-db.ctx.Done():
+				return
 			}
 			db.flushOffsetMap()
 			db.clearFileTables()
@@ -536,8 +545,24 @@ func (db *DB) SetStreamTimestampOffset(entry ssoffsetindex.SeriesStreamOffset, c
 	}
 }
 
-func Reload(options Options) (*DB, error) {
+func (db *DB) Close() error {
+	db.cancel()
+	for _, fileTable := range db.getFileSTOffsetTables() {
+		fileTable.DecRef()
+	}
+	for _, offset := range db.getOffsetTables() {
+		if err := offset.wal.Close(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func Open(options Options) (*DB, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	var db = DB{
+		ctx:                ctx,
+		cancel:             cancel,
 		Options:            options,
 		offsetTables:       &[]STOffsetTable{},
 		flushTables:        &[]STOffsetTable{},
@@ -566,65 +591,69 @@ func Reload(options Options) (*DB, error) {
 		}); err != nil {
 		return nil, err
 	}
-
-	if err := filepath.WalkDir(options.WalDir,
-		func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if !d.IsDir() {
-				return nil
-			}
-			from, to, err := parseTimestamp(path)
-			if err != nil {
-				return err
-			}
-			for _, filetable := range db.getFileSTOffsetTables() {
-				if filetable.TimeStamp.From == from && filetable.TimeStamp.To == to {
-					if err := os.RemoveAll(path); err != nil {
-						return errors.WithStack(err)
-					}
-					logrus.WithFields(logrus.Fields{
-						"wal dir":   path,
-						"filetable": filetable.filename,
-					}).Info("delete offset map wal")
-					return nil
-				}
-			}
-
-			table := STOffsetTable{
-				WalDir: "",
-				Timestamp: struct {
-					From int64
-					To   int64
-				}{
-					From: from,
-					To:   to,
-				},
-				Offsets:      map[ssoffsetindex.StreamID]int64{},
-				wal:          nil,
-				tablesLocker: &sync.Mutex{},
-			}
-			var begin = time.Now()
-			table.wal, err = wal.Reload(wal.DefaultOption(path),
-				func(et streamstorepb.EntryTyper) error {
-					entry := et.(*streamstorepb.StreamTimeStampOffset)
-					table.Offsets[entry.StreamId] = entry.Offset
-					return nil
-				})
-			if err != nil {
-				return err
-			}
-			*db.offsetTables = append(*db.offsetTables, table)
-			logrus.WithFields(logrus.Fields{
-				"wal":     path,
-				"count":   len(table.Offsets),
-				"elapsed": time.Since(begin),
-			}).Info("offset map reload success")
-			return nil
-		}); err != nil {
-		return nil, err
+	f, err := os.Open(options.WalDir)
+	if err != nil {
+		return nil, errors.WithStack(err)
 	}
+	dirs, err := f.ReadDir(0)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+
+	for _, dir := range dirs {
+		if !dir.IsDir() {
+			continue
+		}
+
+		path := dir.Name()
+		from, to, err := parseTimestamp(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, filetable := range db.getFileSTOffsetTables() {
+			if filetable.TimeStamp.From == from && filetable.TimeStamp.To == to {
+				if err := os.RemoveAll(path); err != nil {
+					return nil, errors.WithStack(err)
+				}
+				logrus.WithFields(logrus.Fields{
+					"wal dir":   path,
+					"filetable": filetable.filename,
+				}).Info("delete offset map wal")
+				continue
+			}
+		}
+
+		table := STOffsetTable{
+			WalDir: path,
+			Timestamp: struct {
+				From int64
+				To   int64
+			}{
+				From: from,
+				To:   to,
+			},
+			Offsets:      map[ssoffsetindex.StreamID]int64{},
+			wal:          nil,
+			tablesLocker: &sync.Mutex{},
+		}
+		var begin = time.Now()
+		table.wal, err = wal.Reload(wal.DefaultOption(path),
+			func(et streamstorepb.EntryTyper) error {
+				entry := et.(*streamstorepb.StreamTimeStampOffset)
+				table.Offsets[entry.StreamId] = entry.Offset
+				return nil
+			})
+		if err != nil {
+			return nil, err
+		}
+		*db.offsetTables = append(*db.offsetTables, table)
+		logrus.WithFields(logrus.Fields{
+			"wal":     path,
+			"count":   len(table.Offsets),
+			"elapsed": time.Since(begin),
+		}).Info("offset map reload success")
+	}
+
 	offsetTables := db.getOffsetTables()
 	sort.Slice(offsetTables, func(i, j int) bool {
 		return offsetTables[i].Timestamp.From < offsetTables[j].Timestamp.From
