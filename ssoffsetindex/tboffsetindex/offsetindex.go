@@ -36,10 +36,6 @@ type DB struct {
 	cancel context.CancelFunc
 }
 
-
-
-
-
 type STOffset struct {
 	//metrics stream ID
 	StreamId ssoffsetindex.StreamID
@@ -396,8 +392,8 @@ func (db *DB) flushFileOffsetTable(table STOffsetTable) {
 	logrus.WithFields(logrus.Fields{
 		"tableFile":      tablefile,
 		"wal":            table.WalDir,
-		"timestamp.from": table.Timestamp.From,
-		"timestamp.to":   table.Timestamp.To,
+		"timestamp.from": time.UnixMilli(table.Timestamp.From).Local(),
+		"timestamp.to":   time.UnixMilli(table.Timestamp.To).Local(),
 		"entryCount":     len(table.Offsets),
 	}).Infof("create file table success")
 }
