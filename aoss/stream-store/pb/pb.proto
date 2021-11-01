@@ -13,9 +13,6 @@ message Entry{
     uint64 ID = 3;
 }
 
-message EntryBatch{
-    repeated Entry entries = 1 [(gogoproto.nullable) = false];
-}
 
 //StreamOffset stream offset range [from,to)
 message StreamOffset {
@@ -33,4 +30,24 @@ message SegmentFooter {
     map<uint64,StreamOffset> streamOffsets  =2[(gogoproto.nullable) = false];
     uint64 first_entry_id = 3;
     uint64 last_entry_id = 4;
+}
+
+message StreamTimeStampOffset{
+    //metrics stream ID
+    uint64 stream_id = 1 [(gogoproto.customtype) = "StreamID" ,(gogoproto.nullable) = false];
+	//TimestampMS time series samples timestamp
+	int64 TimestampMS =2;
+	//Offset stream offset
+	int64 Offset =3;
+
+    uint64 ID = 4;
+}
+
+message offset_index_file_table_header{
+    int64 create_ts = 1;
+    string ver =2;
+    int32 count = 3;
+    int64 ts_from = 4;
+    int64 ts_to = 5;
+
 }
