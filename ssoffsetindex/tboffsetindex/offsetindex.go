@@ -241,7 +241,7 @@ func (db *DB) clearFileTables() {
 	}
 	db.setFileSTOffsetTable(remain)
 }
-func (db *DB) startTickerGoutine() {
+func (db *DB) startTickerRoutine() {
 	ticker := time.NewTicker(time.Second)
 	go func() {
 		for {
@@ -625,6 +625,11 @@ func Reload(options Options) (*DB, error) {
 		}); err != nil {
 		return nil, err
 	}
-	db.startTickerGoutine()
+	offsetTables := db.getOffsetTables()
+	sort.Slice(offsetTables, func(i, j int) bool {
+		return offsetTables[i].Timestamp.From < offsetTables[j].Timestamp.From
+	})
+	db.setOffsetTables(offsetTables)
+	db.startTickerRoutine()
 	return &db, nil
 }
