@@ -1857,3 +1857,62 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 		})
 	}
 }
+
+func TestOpen(t *testing.T) {
+	t.Cleanup(func() {
+		os.RemoveAll(t.Name())
+	})
+	opts := Options{
+		FileTableDir:        t.Name(),
+		WalDir:              t.Name(),
+		OffsetTableInterval: time.Second * 3,
+		Retention: struct {
+			Time time.Duration `yaml:"retention"`
+		}{
+			Time: time.Hour * 10000,
+		},
+		TickerInterval: time.Millisecond * 100,
+	}
+
+	db, err := Open(opts)
+	if err != nil {
+		t.Fatalf("%+v", err)
+	}
+	var scount = 100
+
+	assert.True(t, len(db.getOffsetTables()) > 0)
+
+	for i := 0; i < scount; i++ {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		db.SetStreamTimestampOffset(ssoffsetindex.SeriesStreamOffset{
+			StreamID:    ssoffsetindex.StreamID(i),
+			TimestampMS: time.Now().UnixMilli(),
+			Offset:      int64(i),
+		}, func(err error) {
+			assert.NoError(t, err)
+			wg.Done()
+		})
+		wg.Wait()
+	}
+	time.Sleep(time.Second * 5)
+
+	for i := 0; i < scount; i++ {
+		offset, err := db.GetStreamTimestampOffset(ssoffsetindex.StreamID(i),
+			time.Now().UnixMilli(), false)
+		assert.NoError(t, err)
+		assert.Equal(t, offset, int64(i))
+	}
+	assert.NoError(t, db.Close())
+
+	db, err = Open(opts)
+	assert.NoError(t, err)
+
+	for i := 0; i < scount; i++ {
+		offset, err := db.GetStreamTimestampOffset(ssoffsetindex.StreamID(i),
+			time.Now().UnixMilli(), false)
+		assert.NoError(t, err)
+		assert.Equal(t, offset, int64(i))
+	}
+
+}

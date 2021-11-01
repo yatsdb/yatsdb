@@ -31,7 +31,7 @@ func Reload(options Options, fn func(streamstorepb.EntryTyper) error) (*wal, err
 	var fileInfos []*FileInfo
 	err := filepath.Walk(options.Dir, func(path string, info fs.FileInfo, err error) error {
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 		if info.IsDir() {
 			return nil

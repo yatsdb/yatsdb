@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -21,6 +20,7 @@ import (
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
 	invertedindex "github.com/yatsdb/yatsdb/inverted-Index"
 	"github.com/yatsdb/yatsdb/pkg/metrics"
+	"github.com/yatsdb/yatsdb/pkg/utils"
 	ssoffsetindex "github.com/yatsdb/yatsdb/ssoffsetindex"
 	"github.com/yatsdb/yatsdb/ssoffsetindex/badgeroffsetindex"
 )
@@ -98,22 +98,13 @@ type tsdb struct {
 	readPipelines chan interface{}
 }
 
-func mkdirAll(dirs ...string) error {
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0777); err != nil {
-			if err != os.ErrExist {
-				return errors.WithStack(err)
-			}
-		}
-	}
-	return nil
-}
+
 
 func OpenTSDB(options Options) (TSDB, error) {
 	if options.ReadGorutines == 0 {
 		options.ReadGorutines = 128
 	}
-	if err := mkdirAll(options.BadgerDBStoreDir); err != nil {
+	if err := utils.MkdirAll(options.BadgerDBStoreDir); err != nil {
 		return nil, err
 	}
 	var streamStore aoss.StreamStore

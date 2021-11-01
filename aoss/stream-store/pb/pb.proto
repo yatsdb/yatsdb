@@ -44,7 +44,7 @@ message StreamTimeStampOffset{
 }
 
 message offset_index_file_table_header{
-    int64 ts = 1;
+    int64 create_ts = 1;
     string ver =2;
     int32 count = 3;
     int64 ts_from = 4;

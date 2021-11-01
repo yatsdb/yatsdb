@@ -3,6 +3,7 @@ package tboffsetindex
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 	"github.com/yatsdb/yatsdb/aoss/stream-store/wal"
+	"github.com/yatsdb/yatsdb/pkg/utils"
 	"github.com/yatsdb/yatsdb/ssoffsetindex"
 )
 
@@ -38,6 +40,7 @@ type Options struct {
 	FileTableDir        string        `yaml:"file_table_dir"`
 	WalDir              string        `yaml:"wal_dir"`
 	OffsetTableInterval time.Duration `yaml:"offset_table_interval"`
+	TickerInterval      time.Duration `yaml:"ticker_interval"`
 	Retention           struct {
 		Time time.Duration `yaml:"retention"`
 	} `yaml:"retention"`
@@ -134,11 +137,16 @@ func (table *FileSTOffsetTable) DecRef() {
 						"err":      err,
 					}).Panic("remove table table error")
 				}
+				logrus.WithFields(logrus.Fields{
+					"filename":  table.filename,
+					"timestamp": table.TimeStamp,
+				}).Infof("delete file table success")
+			} else {
+				logrus.WithFields(logrus.Fields{
+					"filename":  table.filename,
+					"timestamp": table.TimeStamp,
+				}).Infof("close file table success")
 			}
-			logrus.WithFields(logrus.Fields{
-				"filename":  table.filename,
-				"timestamp": table.TimeStamp,
-			}).Infof("delete file table success")
 		}
 		break
 	}
@@ -169,21 +177,41 @@ func (db *DB) setOffsetTables(tables []STOffsetTable) {
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&db.offsetTables)), unsafe.Pointer(&tables))
 }
 
-func (db *DB) flushOffsetMap() {
+func (db *DB) flushOffsetMap() bool {
 	now := time.Now()
 	offsetTables := db.getOffsetTables()
-	lastTable := offsetTables[len(offsetTables)-1]
-	toTS := time.UnixMilli(lastTable.Timestamp.To).Local()
-	if toTS.After(now) && toTS.Sub(now) < db.OffsetTableInterval/2 {
-		return
-	}
-
-	timestamp := struct {
+	var timestamp struct {
 		From int64
 		To   int64
-	}{
-		From: lastTable.Timestamp.To,
-		To:   lastTable.Timestamp.To + db.OffsetTableInterval.Milliseconds(),
+	}
+	if len(offsetTables) == 0 {
+		timestamp.From = now.Add(-db.Options.OffsetTableInterval / 2).UnixMilli()
+		timestamp.To = now.Add(db.OffsetTableInterval / 2).UnixMilli()
+		logrus.Info("offsetTable empty")
+	} else {
+		lastTable := offsetTables[len(offsetTables)-1]
+		toTS := time.UnixMilli(lastTable.Timestamp.To).Local()
+		if toTS.After(now) && toTS.Sub(now) > db.OffsetTableInterval/2 {
+			logrus.WithFields(logrus.Fields{
+				"toTS":                     toTS,
+				"now":                      now,
+				"toTS.Sub(now)":            toTS.Sub(now),
+				"db.OffsetTableInterval/2": db.OffsetTableInterval / 2,
+			}).Info("offset table ok")
+			return false
+		}
+		if toTS.Before(now) {
+			logrus.WithFields(logrus.Fields{
+				"from": time.UnixMilli(lastTable.Timestamp.From).Local(),
+				"to":   time.UnixMilli(lastTable.Timestamp.To).Local(),
+				"now":  now,
+			}).Info("offsetTable all timeout")
+			timestamp.From = now.Add(-db.Options.OffsetTableInterval / 2).UnixMilli()
+			timestamp.To = now.Add(db.OffsetTableInterval / 2).UnixMilli()
+		} else {
+			timestamp.From = time.UnixMilli(lastTable.Timestamp.To).Local().UnixMilli()
+			timestamp.To = timestamp.From + db.OffsetTableInterval.Milliseconds()
+		}
 	}
 
 	tsName := strconv.FormatInt(timestamp.From, 10) + "-" +
@@ -207,9 +235,10 @@ func (db *DB) flushOffsetMap() {
 	})
 
 	logrus.WithFields(logrus.Fields{
-		"wal":            dir,
-		"timestamp.from": time.UnixMilli(timestamp.From).Local(),
-		"timestamp.to":   time.UnixMilli(timestamp.To).Local(),
+		"wal":               dir,
+		"timestamp.from":    time.UnixMilli(timestamp.From).Local(),
+		"timestamp.to":      time.UnixMilli(timestamp.To).Local(),
+		"offset.table.size": len(offsetTables),
 	}).Info("create new offset map")
 
 	if len(offsetTables) > 2 {
@@ -218,10 +247,11 @@ func (db *DB) flushOffsetMap() {
 		db.setFlushTables(flushTables)
 		offsetTables = append([]STOffsetTable{}, offsetTables[1:]...)
 		db.setOffsetTables(offsetTables)
-		db.flushFileOffsetTable(first)
+		go db.flushFileOffsetTable(first)
 	} else {
 		db.setOffsetTables(offsetTables)
 	}
+	return true
 }
 
 func (db *DB) clearFileTables() {
@@ -229,14 +259,18 @@ func (db *DB) clearFileTables() {
 	if len(fileTables) == 0 {
 		return
 	}
-	ts := time.UnixMilli(fileTables[0].header.Ts).Local()
+	ts := time.UnixMilli(fileTables[0].header.CreateTs).Local()
 	if time.Now().Sub(ts) < db.Retention.Time {
 		return
 	}
 	var remain []FileSTOffsetTable
 	for i, table := range fileTables {
-		ts := time.UnixMilli(fileTables[0].header.Ts).Local()
+		ts := time.UnixMilli(fileTables[0].header.CreateTs).Local()
 		if time.Now().Sub(ts) >= db.Retention.Time {
+			logrus.WithFields(logrus.Fields{
+				"filename":  table.filename,
+				"create_ts": ts,
+			}).Info("to delete fileTable")
 			table.deleteOnClose = true
 			table.DecRef()
 			continue
@@ -247,17 +281,21 @@ func (db *DB) clearFileTables() {
 	db.setFileSTOffsetTable(remain)
 }
 func (db *DB) startTickerRoutine() {
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(db.TickerInterval)
 	db.wg.Add(1)
 	go func() {
-		defer db.wg.Done()
+		defer func() {
+			db.wg.Done()
+			ticker.Stop()
+		}()
 		for {
 			select {
 			case <-ticker.C:
 			case <-db.ctx.Done():
 				return
 			}
-			db.flushOffsetMap()
+			for db.flushOffsetMap() {
+			}
 			db.clearFileTables()
 		}
 	}()
@@ -311,9 +349,11 @@ func (db *DB) flushFileOffsetTable(table STOffsetTable) {
 	})
 
 	header := streamstorepb.OffsetIndexFileTableHeader{
-		Ts:    time.Now().Unix(),
-		Ver:   "v1",
-		Count: int32(len(table.Offsets)),
+		Ver:      "v1",
+		CreateTs: time.Now().UnixMilli(),
+		Count:    int32(len(table.Offsets)),
+		TsFrom:   table.Timestamp.From,
+		TsTo:     table.Timestamp.To,
 	}
 	data, _ := header.Marshal()
 	var headerLen [4]byte
@@ -418,6 +458,7 @@ func (db *DB) openTablefile(filename string) error {
 	}
 	data = data[headerLen:]
 
+	var ref int32 = 1
 	table := FileSTOffsetTable{
 		TimeStamp: struct {
 			From int64
@@ -429,13 +470,12 @@ func (db *DB) openTablefile(filename string) error {
 		mfile:    mfile,
 		filename: filename,
 		header:   header,
-		ref:      new(int32),
+		ref:      &ref,
 	}
-	table.IncRef()
-
-	unsafeSlice(unsafe.Pointer(&table.STOffsets),
-		unsafe.Pointer(&data[0]), int(header.Count))
-
+	if len(data) > 0 {
+		unsafeSlice(unsafe.Pointer(&table.STOffsets),
+			unsafe.Pointer(&data[0]), int(header.Count))
+	}
 	fileSTOffsetTables := db.getFileSTOffsetTables()
 
 	if len(fileSTOffsetTables) != 0 {
@@ -465,7 +505,6 @@ func (db *DB) openTablefile(filename string) error {
 }
 
 func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestampMS int64, LE bool) (int64, error) {
-
 	offsetTables := db.getOffsetTables()
 	flushTables := db.getFlushTables()
 	fileSTOffsetTables := db.getFileSTOffsetTables()
@@ -523,6 +562,7 @@ func (db *DB) SetStreamTimestampOffset(entry ssoffsetindex.SeriesStreamOffset, c
 		if table.Timestamp.From <= entry.TimestampMS && entry.TimestampMS < table.Timestamp.To {
 			if _, ok := table.Offsets[entry.StreamID]; ok {
 				table.tablesLocker.Unlock()
+				callback(nil)
 				return
 			} else {
 				table.Offsets[entry.StreamID] = entry.Offset
@@ -543,6 +583,7 @@ func (db *DB) SetStreamTimestampOffset(entry ssoffsetindex.SeriesStreamOffset, c
 		}
 		table.tablesLocker.Unlock()
 	}
+	callback(fmt.Errorf("timestamp error error"))
 }
 
 func (db *DB) Close() error {
@@ -559,6 +600,12 @@ func (db *DB) Close() error {
 }
 
 func Open(options Options) (*DB, error) {
+	if options.TickerInterval == 0 {
+		options.TickerInterval = time.Second
+	}
+	if err := utils.MkdirAll(options.WalDir, options.FileTableDir); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var db = DB{
 		ctx:                ctx,
@@ -571,7 +618,7 @@ func Open(options Options) (*DB, error) {
 	if err := filepath.Walk(options.FileTableDir,
 		func(path string, info fs.FileInfo, err error) error {
 			if err != nil {
-				return err
+				return errors.WithStack(err)
 			}
 			if info.IsDir() {
 				return nil
@@ -600,12 +647,13 @@ func Open(options Options) (*DB, error) {
 		return nil, errors.WithStack(err)
 	}
 
+loop:
 	for _, dir := range dirs {
 		if !dir.IsDir() {
 			continue
 		}
 
-		path := dir.Name()
+		path := filepath.Join(options.WalDir, dir.Name())
 		from, to, err := parseTimestamp(path)
 		if err != nil {
 			return nil, err
@@ -619,7 +667,7 @@ func Open(options Options) (*DB, error) {
 					"wal dir":   path,
 					"filetable": filetable.filename,
 				}).Info("delete offset map wal")
-				continue
+				continue loop
 			}
 		}
 
@@ -659,6 +707,9 @@ func Open(options Options) (*DB, error) {
 		return offsetTables[i].Timestamp.From < offsetTables[j].Timestamp.From
 	})
 	db.setOffsetTables(offsetTables)
+
+	for db.flushOffsetMap() {
+	}
 	db.startTickerRoutine()
 	return &db, nil
 }
