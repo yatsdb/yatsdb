@@ -28,7 +28,7 @@ type SeriesStreamOffset struct {
 	Offset int64
 }
 
-type OffsetDB interface {
+type OffsetIndexDB interface {
 	StreamTimestampOffsetGetter
 	OffsetIndexUpdater
 }

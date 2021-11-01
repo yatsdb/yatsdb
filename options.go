@@ -8,15 +8,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	filestreamstore "github.com/yatsdb/yatsdb/aoss/file-stream-store"
 	streamstore "github.com/yatsdb/yatsdb/aoss/stream-store"
+	"github.com/yatsdb/yatsdb/ssoffsetindex/tboffsetindex"
 	"gopkg.in/yaml.v3"
 )
 
 type Options struct {
 	BadgerDBStoreDir       string                                 `yaml:"badger_db_store_dir"`
 	EnableStreamStore      bool                                   `yaml:"enable_stream_store"`
+	EnableTBOffsetIndex    bool                                   `yaml:"enable_tb_offset_index"`
 	ReadGorutines          int                                    `yaml:"read_gorutines"`
 	StreamStoreOptions     streamstore.Options                    `yaml:"stream_store_options"`
 	FileStreamStoreOptions filestreamstore.FileStreamStoreOptions `yaml:"file_stream_store_options"`
+	OffsetIndexOptions     tboffsetindex.Options                  `yaml:"offset_index_options"`
 	Debug                  struct {
 		DumpReadRequestResponse bool `yaml:"dump_read_request_response"`
 		LogWriteStat            bool `yaml:"log_write_stat"`
@@ -28,23 +31,24 @@ type Options struct {
 //DefaultOptions return default options with store path
 func DefaultOptions(path string) Options {
 	return Options{
-		BadgerDBStoreDir:   filepath.Join(path, "index"),
-		EnableStreamStore:  true,
-		ReadGorutines:      128,
-		StreamStoreOptions: streamstore.DefaultOptionsWithDir(path),
-		Registerer:         prometheus.DefaultRegisterer,
+		EnableStreamStore:   true,
+		EnableTBOffsetIndex: true,
+		ReadGorutines:       256,
+		BadgerDBStoreDir:    filepath.Join(path, "metric-index"),
+		StreamStoreOptions:  streamstore.DefaultOptionsWithDir(path + "/stream-store"),
+		FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
+			Dir:            filepath.Join(path, "filestreamstore"),
+			SyncWrite:      false,
+			WriteGorutines: 32},
+		OffsetIndexOptions: tboffsetindex.DefaultOptionsWithDir(path + "/offset-index"),
 		Debug: struct {
 			DumpReadRequestResponse bool `yaml:"dump_read_request_response"`
 			LogWriteStat            bool `yaml:"log_write_stat"`
 		}{
-			DumpReadRequestResponse: false,
-			LogWriteStat:            false,
+			DumpReadRequestResponse: true,
+			LogWriteStat:            true,
 		},
-		FileStreamStoreOptions: filestreamstore.FileStreamStoreOptions{
-			Dir:            filepath.Join(path, "filestreamstore"),
-			SyncWrite:      false,
-			WriteGorutines: 32,
-		},
+		Registerer: prometheus.DefaultRegisterer,
 	}
 }
 

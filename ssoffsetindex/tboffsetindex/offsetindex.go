@@ -36,15 +36,9 @@ type DB struct {
 	cancel context.CancelFunc
 }
 
-type Options struct {
-	FileTableDir        string        `yaml:"file_table_dir"`
-	WalDir              string        `yaml:"wal_dir"`
-	OffsetTableInterval time.Duration `yaml:"offset_table_interval"`
-	TickerInterval      time.Duration `yaml:"ticker_interval"`
-	Retention           struct {
-		Time time.Duration `yaml:"retention"`
-	} `yaml:"retention"`
-}
+
+
+
 
 type STOffset struct {
 	//metrics stream ID
