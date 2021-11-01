@@ -479,6 +479,9 @@ func Test_unsafeSlice(t *testing.T) {
 }
 
 func TestDB_flushOffsetMap(t *testing.T) {
+	t.Cleanup(func() {
+		os.RemoveAll(t.Name())
+	})
 	type fields struct {
 		Options            Options
 		offsetTables       *[]STOffsetTable
@@ -717,6 +720,12 @@ func TestDB_SetStreamTimestampOffset(t *testing.T) {
 }
 
 func TestDB_GetStreamTimestampOffset(t *testing.T) {
+
+	newRef := func() *int32 {
+		var ref int32
+		ref = 1
+		return &ref
+	}
 	type fields struct {
 		Options            Options
 		offsetTables       *[]STOffsetTable
@@ -766,6 +775,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -791,6 +801,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -833,6 +844,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -858,6 +870,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -900,6 +913,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -925,6 +939,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -967,6 +982,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -992,6 +1008,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1034,6 +1051,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1059,6 +1077,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1101,6 +1120,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1126,6 +1146,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1186,6 +1207,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1211,6 +1233,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1271,6 +1294,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1296,6 +1320,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1373,6 +1398,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1398,6 +1424,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1493,6 +1520,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1518,6 +1546,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1529,7 +1558,6 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 			wantErr: false,
 		},
 		{
-
 
 			name: "offsetTables_ts_600",
 			fields: fields{
@@ -1569,7 +1597,6 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						wal:          nil,
 						tablesLocker: &sync.Mutex{},
-					
 					},
 				},
 				flushTables: &[]STOffsetTable{
@@ -1633,6 +1660,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1658,6 +1686,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1669,8 +1698,6 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 			wantErr: false,
 		},
 		{
-
-
 
 			name: "offsetTables_ts_700",
 			fields: fields{
@@ -1710,7 +1737,6 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						wal:          nil,
 						tablesLocker: &sync.Mutex{},
-					
 					},
 				},
 				flushTables: &[]STOffsetTable{
@@ -1774,6 +1800,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "1-100.table",
+						ref:      newRef(),
 					},
 					{
 						TimeStamp: struct {
@@ -1799,6 +1826,7 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 						},
 						mfile:    &fileutil.MmapFile{},
 						filename: "100-200.table",
+						ref:      newRef(),
 					},
 				},
 			},
@@ -1808,7 +1836,6 @@ func TestDB_GetStreamTimestampOffset(t *testing.T) {
 			},
 			want:    33000,
 			wantErr: false,
-		
 		},
 	}
 	for _, tt := range tests {

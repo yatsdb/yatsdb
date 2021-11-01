@@ -1,6 +1,7 @@
 package tboffsetindex
 
 import (
+	"encoding/binary"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -29,9 +30,12 @@ type DB struct {
 }
 
 type Options struct {
-	FileTableDir        string
-	WalDir              string
-	OffsetTableInterval time.Duration
+	FileTableDir        string        `yaml:"file_table_dir"`
+	WalDir              string        `yaml:"wal_dir"`
+	OffsetTableInterval time.Duration `yaml:"offset_table_interval"`
+	Retention           struct {
+		Time time.Duration `yaml:"retention"`
+	} `yaml:"retention"`
 }
 
 type STOffset struct {
@@ -45,9 +49,12 @@ type FileSTOffsetTable struct {
 		From int64
 		To   int64
 	}
-	STOffsets []STOffset
-	mfile     *fileutil.MmapFile
-	filename  string
+	STOffsets     []STOffset
+	mfile         *fileutil.MmapFile
+	filename      string
+	header        streamstorepb.OffsetIndexFileTableHeader
+	ref           *int32
+	deleteOnClose bool
 }
 
 type STOffsetTable struct {
@@ -76,6 +83,61 @@ func (entry *STOffsetEntry) Fn(ID uint64, err error) {
 /*
 |     10 Minute     |                |
 */
+
+func (table *FileSTOffsetTable) IncRef() bool {
+	for {
+		ref := atomic.LoadInt32(table.ref)
+		if ref < 0 {
+			logrus.WithFields(logrus.Fields{
+				"filename": table.filename,
+				"ref":      ref,
+			}).Panic("ref error")
+		}
+		if ref == 0 {
+			return false
+		}
+		if atomic.CompareAndSwapInt32(table.ref, ref, ref+1) {
+			return true
+		}
+	}
+}
+
+func (table *FileSTOffsetTable) DecRef() {
+	for {
+		ref := atomic.LoadInt32(table.ref)
+		if ref <= 0 {
+			logrus.WithFields(logrus.Fields{
+				"filename": table.filename,
+				"ref":      ref,
+			}).Panic("ref error")
+		}
+
+		if !atomic.CompareAndSwapInt32(table.ref, ref, ref-1) {
+			continue
+		}
+		if ref-1 == 0 {
+			if err := table.mfile.Close(); err != nil {
+				logrus.WithFields(logrus.Fields{
+					"filename": table.filename,
+					"err":      err,
+				}).Panic("close file table failed")
+			}
+			if table.deleteOnClose {
+				if err := os.Remove(table.filename); err != nil {
+					logrus.WithFields(logrus.Fields{
+						"filename": table.filename,
+						"err":      err,
+					}).Panic("remove table table error")
+				}
+			}
+			logrus.WithFields(logrus.Fields{
+				"filename":  table.filename,
+				"timestamp": table.TimeStamp,
+			}).Infof("delete file table success")
+		}
+		break
+	}
+}
 
 func (db *DB) getFileSTOffsetTables() []FileSTOffsetTable {
 	return *(*[]FileSTOffsetTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&db.FileSTOffsetTables))))
@@ -157,7 +219,29 @@ func (db *DB) flushOffsetMap() {
 	}
 }
 
-func (db *DB) startFlushTableRoutine() {
+func (db *DB) clearFileTables() {
+	fileTables := db.getFileSTOffsetTables()
+	if len(fileTables) == 0 {
+		return
+	}
+	ts := time.UnixMilli(fileTables[0].header.Ts).Local()
+	if time.Now().Sub(ts) < db.Retention.Time {
+		return
+	}
+	var remain []FileSTOffsetTable
+	for i, table := range fileTables {
+		ts := time.UnixMilli(fileTables[0].header.Ts).Local()
+		if time.Now().Sub(ts) >= db.Retention.Time {
+			table.deleteOnClose = true
+			table.DecRef()
+			continue
+		}
+		remain = append(remain, fileTables[i:]...)
+		break
+	}
+	db.setFileSTOffsetTable(remain)
+}
+func (db *DB) startTickerGoutine() {
 	ticker := time.NewTicker(time.Second)
 	go func() {
 		for {
@@ -165,6 +249,7 @@ func (db *DB) startFlushTableRoutine() {
 			case <-ticker.C:
 			}
 			db.flushOffsetMap()
+			db.clearFileTables()
 		}
 	}()
 }
@@ -200,7 +285,8 @@ func (db *DB) flushFileOffsetTable(table STOffsetTable) {
 
 	f, err := os.Create(tmpfile)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{"filename": tmpfile, "err": err}).Panic("create file failed")
+		logrus.WithFields(logrus.Fields{"filename": tmpfile, "err": err}).
+			Panic("create file failed")
 	}
 
 	var offsetEntries []STOffset
@@ -215,7 +301,24 @@ func (db *DB) flushFileOffsetTable(table STOffsetTable) {
 		return offsetEntries[i].StreamId < offsetEntries[j].StreamId
 	})
 
-	var data = make([]byte, int(unsafe.Sizeof(offsetEntries[0]))*len(offsetEntries))
+	header := streamstorepb.OffsetIndexFileTableHeader{
+		Ts:    time.Now().Unix(),
+		Ver:   "v1",
+		Count: int32(len(table.Offsets)),
+	}
+	data, _ := header.Marshal()
+	var headerLen [4]byte
+	binary.BigEndian.PutUint32(headerLen[:], uint32(len(data)))
+	if _, err := f.Write(headerLen[:]); err != nil {
+		logrus.WithFields(logrus.Fields{"filename": tmpfile, "err": err}).
+			Panic("write file failed")
+	}
+	if _, err := f.Write(data); err != nil {
+		logrus.WithFields(logrus.Fields{"filename": tmpfile, "err": err}).
+			Panic("write file failed")
+	}
+
+	data = make([]byte, int(unsafe.Sizeof(offsetEntries[0]))*len(offsetEntries))
 	for index, offset := range offsetEntries {
 		*(*STOffset)(unsafe.Pointer(&data[index*int(unsafe.Sizeof(offset))])) = offset
 	}
@@ -289,6 +392,22 @@ func (db *DB) openTablefile(filename string) error {
 	if err != nil {
 		return errors.WithStack(err)
 	}
+	data := mfile.Bytes()
+	if len(data) < 4 {
+		return errors.New("file table format error")
+	}
+
+	headerLen := binary.BigEndian.Uint32(data)
+	data = data[4:]
+
+	if len(data) < int(headerLen) {
+		return errors.New("file table format error")
+	}
+	var header streamstorepb.OffsetIndexFileTableHeader
+	if err := header.Unmarshal(data[:headerLen]); err != nil {
+		return errors.WithMessage(err, "unmarshal header failed")
+	}
+	data = data[headerLen:]
 
 	table := FileSTOffsetTable{
 		TimeStamp: struct {
@@ -300,10 +419,13 @@ func (db *DB) openTablefile(filename string) error {
 		},
 		mfile:    mfile,
 		filename: filename,
+		header:   header,
+		ref:      new(int32),
 	}
-	size := len(mfile.Bytes()) / int(unsafe.Sizeof(STOffset{}))
-	data := mfile.Bytes()
-	unsafeSlice(unsafe.Pointer(&table.STOffsets), unsafe.Pointer(&data[0]), size)
+	table.IncRef()
+
+	unsafeSlice(unsafe.Pointer(&table.STOffsets),
+		unsafe.Pointer(&data[0]), int(header.Count))
 
 	fileSTOffsetTables := db.getFileSTOffsetTables()
 
@@ -367,15 +489,21 @@ func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestam
 		i = len(fileSTOffsetTables) - 1
 	}
 	for ; i >= 0; i-- {
-		if fileSTOffsetTables[i].TimeStamp.From <= timestampMS {
-			offsets := fileSTOffsetTables[i].STOffsets
+		fileTable := fileSTOffsetTables[i]
+		if !fileTable.IncRef() {
+			continue
+		}
+		if fileTable.TimeStamp.From <= timestampMS {
+			offsets := fileTable.STOffsets
 			k := sort.Search(len(offsets), func(j int) bool {
 				return streamID <= offsets[j].StreamId
 			})
 			if k < len(offsets) && streamID == offsets[k].StreamId {
+				fileTable.DecRef()
 				return offsets[k].Offset, nil
 			}
 		}
+		fileTable.DecRef()
 	}
 	return 0, ssoffsetindex.ErrNoFindOffset
 }
@@ -497,6 +625,6 @@ func Reload(options Options) (*DB, error) {
 		}); err != nil {
 		return nil, err
 	}
-	db.startFlushTableRoutine()
+	db.startTickerGoutine()
 	return &db, nil
 }

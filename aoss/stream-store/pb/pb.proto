@@ -42,3 +42,12 @@ message StreamTimeStampOffset{
 
     uint64 ID = 4;
 }
+
+message offset_index_file_table_header{
+    int64 ts = 1;
+    string ver =2;
+    int32 count = 3;
+    int64 ts_from = 4;
+    int64 ts_to = 5;
+
+}
