@@ -78,7 +78,7 @@ func Open(options Options) (*StreamStore, error) {
 		callbackCh:     make(chan func(), 64*1024),
 		flushTableCh:   make(chan MTable, 4),
 		wg:             sync.WaitGroup{},
-		mergeSegmentCh: make(chan interface{}),
+		mergeSegmentCh: make(chan interface{}, 1),
 	}
 	tmpSegments := ss.getSegments()
 	for _, dir := range []string{options.SegmentDir, options.WalOptions.Dir} {
@@ -155,6 +155,7 @@ func Open(options Options) (*StreamStore, error) {
 	ss.appendMtable(ss.mtable)
 	ss.startWriteEntryRoutine()
 	ss.startFlushMTableRoutine()
+	ss.startMergeSegmentRoutine()
 	for i := 0; i < ss.CallbackRoutines; i++ {
 		ss.startCallbackRoutine()
 	}
@@ -584,14 +585,17 @@ func (ss *StreamStore) notifyMergeSegments() {
 }
 func (ss *StreamStore) startMergeSegmentRoutine() {
 	go func() {
+		ticker := time.NewTicker(time.Second * 10)
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ss.mergeSegmentCh:
-				ss.clearSegments()
-				ss.mergeSegments()
+			case <-ticker.C:
 			case <-ss.ctx.Done():
 				return
 			}
+			ss.clearSegments()
+			ss.mergeSegments()
 		}
 	}()
 }
