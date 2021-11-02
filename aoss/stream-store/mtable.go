@@ -1,11 +1,9 @@
 package streamstore
 
 import (
-	"encoding/binary"
 	"io"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
@@ -152,7 +150,7 @@ func (b *Chunks) ReadAt(p []byte, offset int64) (n int, err error) {
 
 var _ MTable = (*mtable)(nil)
 
-func newMTable(omap OffsetMap) MTable {
+func newMTable(omap OffsetMap) *mtable {
 	return &mtable{
 		omap:      omap,
 		chunksMap: make(map[invertedindex.StreamID]*Chunks, 1024*1024),
@@ -207,46 +205,7 @@ func (m *mtable) Size() int {
 }
 
 func (m *mtable) WriteToSegment(ws io.WriteSeeker) error {
-	if _, err := ws.Write(make([]byte, 4)); err != nil {
-		return errors.WithStack(err)
-	}
-	var offset int64
-	offset = 4
-	var footer = streamstorepb.SegmentFooter{
-		CreateTS:      time.Now().UnixNano(),
-		StreamOffsets: map[uint64]streamstorepb.StreamOffset{},
-		FirstEntryId:  m.fristEntryID,
-		LastEntryId:   m.lastEntryID,
-	}
-	for streamID, blocks := range m.chunksMap {
-		footer.StreamOffsets[uint64(streamID)] = streamstorepb.StreamOffset{
-			StreamId: streamID,
-			From:     blocks.From,
-			To:       blocks.To,
-			Offset:   offset,
-		}
-		n, err := blocks.WriteTo(ws)
-		if err != nil {
-			return err
-		}
-		offset += int64(n)
-	}
-	data, err := footer.Marshal()
-	if err != nil {
-		return errors.WithStack(err)
-	}
-	if _, err := ws.Write(data); err != nil {
-		return errors.WithStack(err)
-	}
-	var header = make([]byte, 4)
-	binary.BigEndian.PutUint32(header, uint32(offset))
-	if _, err := ws.Seek(0, 0); err != nil {
-		return errors.WithStack(err)
-	}
-	if _, err := ws.Write(header); err != nil {
-		return errors.WithStack(err)
-	}
-	return nil
+	return WriteSegmentV1(m, ws)
 }
 
 func (m *mtable) ChunkAllocSize() int {

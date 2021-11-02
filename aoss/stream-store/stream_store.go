@@ -98,11 +98,7 @@ func Open(options Options) (*StreamStore, error) {
 			logrus.Infof("delete segment temp file %s", path)
 			return nil
 		} else if strings.HasSuffix(path, segmentExt) {
-			f, err := os.Open(path)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			segment, err := newSegment(f)
+			segment, err := openSegmentV1(path)
 			if err != nil {
 				logrus.Panicf("newSegment %s failed %+v", path, err)
 			}
@@ -358,11 +354,7 @@ func (ss *StreamStore) flushMTable(mtable MTable) {
 }
 
 func (ss *StreamStore) openSegment(filename string) (Segment, error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, errors.Errorf("open file %s failed %s", filename, err.Error())
-	}
-	return newSegment(f)
+	return openSegmentV1(filename)
 }
 
 func (ss *StreamStore) segmentCount() int {
