@@ -27,6 +27,8 @@ type Segment interface {
 	Filename() string
 
 	io.Closer
+
+	SetDeleteOnClose(bool)
 }
 
 type segment struct {
@@ -35,7 +37,8 @@ type segment struct {
 	//streambaseOffset head size
 	streambaseOffset int64
 
-	ref int32
+	ref        int32
+	delOnClose bool
 }
 
 var _ Segment = (*segment)(nil)
@@ -138,6 +141,9 @@ func (s *segment) Filename() string {
 	return s.f.Name()
 }
 
+func (s *segment) SetDeleteOnClose(val bool) {
+	s.delOnClose = val
+}
 func (s *segment) Close() error {
 	for {
 		ret := atomic.LoadInt32(&s.ref)
@@ -152,6 +158,9 @@ func (s *segment) Close() error {
 		}
 	}
 	if err := s.f.Close(); err != nil {
+		return errors.WithStack(err)
+	}
+	if err := os.Remove(s.Filename()); err != nil {
 		return errors.WithStack(err)
 	}
 	return nil

@@ -109,8 +109,7 @@ func (b *Chunks) Write(data []byte) int64 {
 		last.offset += n
 	}
 	b.Unlock()
-	atomic.AddInt64(&b.To, int64(dataLen))
-	return b.To
+	return atomic.AddInt64(&b.To, int64(dataLen))
 }
 
 func (b *Chunks) ReadAt(p []byte, offset int64) (n int, err error) {

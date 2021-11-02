@@ -3,10 +3,12 @@ package streamstore
 import (
 	"encoding/binary"
 	"io"
+	"os"
 	"sort"
 	"time"
 	"unsafe"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/sirupsen/logrus"
@@ -30,9 +32,11 @@ type SegmentV1 struct {
 	filename  string
 	filesize  int64
 
-	ref *utils.Ref
+	ref        *utils.Ref
+	delOnClose bool
 }
 
+var _ Segment = (*SegmentV1)(nil)
 var validSegmentSize = true
 
 func openSegmentV1(filename string) (*SegmentV1, error) {
@@ -136,7 +140,7 @@ func (segment *SegmentV1) GetStreamOffsets() []StreamOffset {
 func (segment *SegmentV1) NewReader(streamID StreamID) (SectionReader, error) {
 	meta, ok := segment.offset(streamID)
 	if !ok {
-		return nil, errors.New("no find streamID")
+		return nil, errors.Errorf("no find streamID %d", streamID)
 	}
 	if !segment.ref.Inc() {
 		return nil, errors.New("segment close")
@@ -149,7 +153,9 @@ func (segment *SegmentV1) NewReader(streamID StreamID) (SectionReader, error) {
 		ref:    segment.ref,
 	}, nil
 }
-
+func (segment *SegmentV1) SetDeleteOnClose(val bool) {
+	segment.delOnClose = val
+}
 func (segment *SegmentV1) Size() int64 {
 	return segment.filesize
 }
@@ -165,7 +171,19 @@ func (segment *SegmentV1) refRelease() {
 			"err":      err,
 		}).Panic("close segment failed")
 	}
+	if segment.delOnClose {
+		if err := os.Remove(segment.filename); err != nil {
+			logrus.WithFields(logrus.Fields{
+				"filename": segment.filename,
+				"err":      err,
+			}).Error("remove segment failed")
+		}
+		logrus.WithFields(logrus.Fields{
+			"filename": segment.filename,
+		}).Info("delete segment success")
+	}
 }
+
 func (segment *SegmentV1) Close() error {
 	segment.ref.DecRef()
 	return nil
@@ -173,7 +191,7 @@ func (segment *SegmentV1) Close() error {
 
 func WriteSegmentV1(m *mtable, ws io.WriteSeeker) error {
 	var header = streamstorepb.SegmentV1Header{
-		Merges:       0,
+		Merges:       1,
 		FirstEntryId: m.fristEntryID,
 		LastEntryId:  m.lastEntryID,
 		CreateTs:     time.Now().UnixMilli(),
@@ -293,13 +311,16 @@ func mergeSSOffsets(offsetss ...[]StreamSegmentOffset) []StreamSegmentOffset {
 }
 
 func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
+	begin := time.Now()
 	sort.Slice(segments, func(i, j int) bool {
 		return segments[i].FirstEntryID() < segments[j].FirstEntryID()
 	})
 
 	var SSOffsets []StreamSegmentOffset
 	var merges int32
+	var filenames []string
 	for _, segment := range segments {
+		filenames = append(filenames, segment.Filename())
 		merges += segment.header.Merges
 		if SSOffsets == nil {
 			SSOffsets = segment.SSOffsets
@@ -379,5 +400,10 @@ func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
 	if _, err := ws.Write(indexBuf); err != nil {
 		return errors.WithStack(err)
 	}
+	logrus.WithFields(logrus.Fields{
+		"eslapsed": time.Since(begin),
+		"segments": filenames,
+		"size":     humanize.IBytes(uint64(offset)),
+	}).Infof("merge segment success")
 	return nil
 }

@@ -88,9 +88,9 @@ func TestOpen(t *testing.T) {
 }
 
 func TestStreamStore_Append(t *testing.T) {
-	logrus.SetLevel(logrus.WarnLevel)
+	logrus.SetLevel(logrus.DebugLevel)
 	t.Cleanup(func() {
-		_ = os.RemoveAll(t.Name())
+		//	_ = os.RemoveAll(t.Name())
 	})
 	opts := DefaultOptionsWithDir(t.Name())
 	opts.MaxMemTableSize = 128 << 10
@@ -143,6 +143,13 @@ func TestStreamStore_Append(t *testing.T) {
 			time.Sleep(time.Second)
 		}
 	})
+
+	ss.Options.MinMergedSegmentSize = 10 << 20
+
+	ss.mergeSegments()
+
+	return
+
 	t.Run("close", func(t *testing.T) {
 		assert.NoError(t, ss.Close())
 	})
@@ -174,7 +181,7 @@ func TestStreamStore_Append(t *testing.T) {
 
 		ss.clearSegments()
 
-		assert.Equal(t, len(ss.segments), 0)
+		assert.Equal(t, len(ss.getSegments()), 0)
 		assert.NoError(t, filepath.Walk(opts.SegmentDir, func(path string, info fs.FileInfo, err error) error {
 			assert.NoError(t, err)
 			if info.IsDir() {
