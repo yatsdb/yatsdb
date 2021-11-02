@@ -241,3 +241,143 @@ func WriteSegmentV1(m *mtable, ws io.WriteSeeker) error {
 
 	return nil
 }
+
+func merge2SSOffset(first, second []StreamSegmentOffset) []StreamSegmentOffset {
+	i := 0
+	j := 0
+	var merged []StreamSegmentOffset
+	for i < len(first) && j < len(second) {
+		if first[i].StreamID < second[j].StreamID {
+			merged = append(merged, first[i])
+			i++
+		} else if second[j].StreamID < first[i].StreamID {
+			merged = append(merged, second[j])
+			j++
+		} else {
+			if first[i].To != second[j].From {
+				logrus.WithFields(logrus.Fields{
+					"first.To":    first[i].To,
+					"first.From":  first[i].From,
+					"second.To":   second[j].To,
+					"second.From": second[j].From,
+					"streamID":    first[i].StreamID,
+				}).Panic("merge streamSegmentOffsets error")
+			}
+			merged = append(merged, StreamSegmentOffset{
+				StreamID: first[i].StreamID,
+				From:     first[i].From,
+				To:       second[j].To,
+				Offset:   0,
+			})
+			i++
+			j++
+		}
+	}
+	if i < len(first) {
+		merged = append(merged, first[i:]...)
+	} else if j < len(second) {
+		merged = append(merged, second[j:]...)
+	}
+	return merged
+}
+
+func mergeSSOffsets(offsetss ...[]StreamSegmentOffset) []StreamSegmentOffset {
+	if len(offsetss) == 1 {
+		return offsetss[0]
+	}
+	if len(offsetss) == 2 {
+		return merge2SSOffset(offsetss[0], offsetss[1])
+	}
+	return merge2SSOffset(merge2SSOffset(offsetss[0], offsetss[1]),
+		mergeSSOffsets(offsetss[2:]...))
+}
+
+func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
+	sort.Slice(segments, func(i, j int) bool {
+		return segments[i].FirstEntryID() < segments[j].FirstEntryID()
+	})
+
+	var SSOffsets []StreamSegmentOffset
+	var merges int32
+	for _, segment := range segments {
+		merges += segment.header.Merges
+		if SSOffsets == nil {
+			SSOffsets = segment.SSOffsets
+			continue
+		}
+		SSOffsets = merge2SSOffset(SSOffsets, segment.SSOffsets)
+	}
+
+	var header = streamstorepb.SegmentV1Header{
+		Merges:       merges,
+		FirstEntryId: segments[0].FirstEntryID(),
+		LastEntryId:  segments[len(segments)-1].LastEntryID(),
+		CreateTs:     segments[len(segments)-1].header.CreateTs,
+		StreamCount:  uint64(len(SSOffsets)),
+	}
+
+	HData, err := header.Marshal()
+	if err != nil {
+		return errors.WithStack(err)
+	}
+	var HSizeBuf = make([]byte, 4)
+	binary.BigEndian.PutUint32(HSizeBuf, uint32(len(HData)))
+	if _, err := ws.Seek(0, 0); err != nil {
+		return errors.WithStack(err)
+	}
+	//write header size
+	if _, err := ws.Write(HSizeBuf); err != nil {
+		return errors.WithStack(err)
+	}
+	//write header
+	if _, err := ws.Write(HData); err != nil {
+		return errors.WithStack(err)
+	}
+	var offset int64
+	offset += 4
+	offset += int64(len(HData))
+
+	//offset index
+	indexOffset := offset
+	indexSize := int64(len(SSOffsets) * SSOffsetSize)
+	indexBuf := make([]byte, indexSize)
+	//skip index block
+	offset += indexSize
+	if _, err := ws.Seek(offset, 0); err != nil {
+		return errors.WithStack(err)
+	}
+
+	var readerBuf = make([]byte, 4*1024)
+	for i := 0; i < len(SSOffsets); i++ {
+		meta := &SSOffsets[i]
+		meta.Offset = offset
+		//copy stream to new segment
+		for _, segment := range segments {
+			reader, err := segment.NewReader(meta.StreamID)
+			if err != nil {
+				continue
+			}
+			n, err := reader.Read(readerBuf)
+			if err != nil {
+				if err == io.EOF {
+					continue
+				}
+				return err
+			}
+			if _, err := ws.Write(readerBuf[:n]); err != nil {
+				return errors.Wrap(err, "write segment failed")
+			}
+			offset += int64(n)
+		}
+		*(*StreamSegmentOffset)(
+			unsafe.Pointer(&indexBuf[i*int(SSOffsetSize)])) = *meta
+	}
+
+	if _, err := ws.Seek(indexOffset, 0); err != nil {
+		return errors.WithStack(err)
+	}
+	if _, err := ws.Write(indexBuf); err != nil {
+		return errors.WithStack(err)
+	}
+	return nil
+}
