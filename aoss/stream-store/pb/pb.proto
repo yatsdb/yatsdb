@@ -32,6 +32,14 @@ message SegmentFooter {
     uint64 last_entry_id = 4;
 }
 
+message SegmentV1Header {
+    int64 create_ts  =1;
+    uint64 first_entry_id = 2;
+    uint64 last_entry_id = 3;
+    uint64 stream_count = 4;
+    int32 merges = 5;
+}
+
 message StreamTimeStampOffset{
     //metrics stream ID
     uint64 stream_id = 1 [(gogoproto.customtype) = "StreamID" ,(gogoproto.nullable) = false];

@@ -9,15 +9,17 @@ import (
 )
 
 type Options struct {
-	WalOptions       wal.Options `yaml:"wal_options,omitempty" json:"wal_options,omitempty"`
-	MaxMemTableSize  utils.Bytes `yaml:"max_mem_table_size,omitempty" json:"max_mem_table_size,omitempty"`
-	MaxMTables       int         `yaml:"max_mtables,omitempty" json:"max_m_tables,omitempty"`
-	SegmentDir       string      `yaml:"segment_dir,omitempty" json:"segment_dir,omitempty"`
-	CallbackRoutines int         `yaml:"callback_routines,omitempty" json:"callback_routines,omitempty"`
+	WalOptions       wal.Options `yaml:"wal_options" json:"wal_options,omitempty"`
+	MaxMemTableSize  utils.Bytes `yaml:"max_mem_table_size" json:"max_mem_table_size,omitempty"`
+	MaxMTables       int         `yaml:"max_mtables" json:"max_m_tables,omitempty"`
+	SegmentDir       string      `yaml:"segment_dir" json:"segment_dir,omitempty"`
+	CallbackRoutines int         `yam:"callback_routines" json:"callback_routines,omitempty"`
 	Retention        struct {
-		Time time.Duration `yaml:"retention,omitempty" json:"time,omitempty"`
-		Size utils.Bytes   `yaml:"size,omitempty" json:"size,omitempty"`
-	} `yaml:"retention,omitempty" json:"retention,omitempty"`
+		Time time.Duration `yaml:"retention" json:"time,omitempty"`
+		Size utils.Bytes   `yaml:"size" json:"size,omitempty"`
+	} `yaml:"retention" json:"retention,omitempty"`
+
+	MinMergedSegmentSize utils.Bytes `yaml:"max_merged_segment_size" json:"max_merged_segment_size,omitempty"`
 }
 
 func DefaultOptionsWithDir(dir string) Options {
@@ -25,14 +27,15 @@ func DefaultOptionsWithDir(dir string) Options {
 		dir = "data"
 	}
 	return Options{
-		WalOptions:       wal.DefaultOption(filepath.Join(dir, "wals")),
-		MaxMemTableSize:  512 << 20,
-		MaxMTables:       1,
-		CallbackRoutines: 4,
-		SegmentDir:       filepath.Join(dir, "segments"),
+		WalOptions:           wal.DefaultOption(filepath.Join(dir, "wals")),
+		MaxMemTableSize:      512 << 20,
+		MinMergedSegmentSize: 1 << 32, //4GiB
+		MaxMTables:           1,
+		CallbackRoutines:     4,
+		SegmentDir:           filepath.Join(dir, "segments"),
 		Retention: struct {
-			Time time.Duration `yaml:"retention,omitempty" json:"time,omitempty"`
-			Size utils.Bytes   `yaml:"size,omitempty" json:"size,omitempty"`
+			Time time.Duration `yaml:"retention" json:"time,omitempty"`
+			Size utils.Bytes   `yaml:"size" json:"size,omitempty"`
 		}{
 			Time: time.Hour * 24 * 30,
 			Size: 100 << 30,

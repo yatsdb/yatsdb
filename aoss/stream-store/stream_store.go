@@ -2,6 +2,7 @@ package streamstore
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -52,10 +53,10 @@ type StreamStore struct {
 
 	flushTableCh chan MTable
 
-	segmentLocker sync.RWMutex
-	segments      []Segment
+	segments *[]Segment
 
-	wg sync.WaitGroup
+	wg             sync.WaitGroup
+	mergeSegmentCh chan interface{}
 }
 
 type AppendCallbackFn = func(offset int64, err error)
@@ -66,17 +67,20 @@ func Open(options Options) (*StreamStore, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	var ss = &StreamStore{
-		Options:       options,
-		ctx:           ctx,
-		cancel:        cancel,
-		appendEntryCh: make(chan appendEntry, 64*1024),
-		mtableMtx:     sync.Mutex{},
-		omap:          newOffsetMap(),
-		mTables:       &[]MTable{},
-		callbackCh:    make(chan func(), 64*1024),
-		flushTableCh:  make(chan MTable, 4),
-		segmentLocker: sync.RWMutex{},
+		Options:        options,
+		ctx:            ctx,
+		cancel:         cancel,
+		appendEntryCh:  make(chan appendEntry, 64*1024),
+		mtableMtx:      sync.Mutex{},
+		omap:           newOffsetMap(),
+		mTables:        &[]MTable{},
+		segments:       &[]Segment{},
+		callbackCh:     make(chan func(), 64*1024),
+		flushTableCh:   make(chan MTable, 4),
+		wg:             sync.WaitGroup{},
+		mergeSegmentCh: make(chan interface{}),
 	}
+	tmpSegments := ss.getSegments()
 	for _, dir := range []string{options.SegmentDir, options.WalOptions.Dir} {
 		if err := os.MkdirAll(dir, 0777); err != nil {
 			if err != os.ErrExist {
@@ -98,15 +102,11 @@ func Open(options Options) (*StreamStore, error) {
 			logrus.Infof("delete segment temp file %s", path)
 			return nil
 		} else if strings.HasSuffix(path, segmentExt) {
-			f, err := os.Open(path)
-			if err != nil {
-				return errors.WithStack(err)
-			}
-			segment, err := newSegment(f)
+			segment, err := openSegmentV1(path)
 			if err != nil {
 				logrus.Panicf("newSegment %s failed %+v", path, err)
 			}
-			ss.segments = append(ss.segments, segment)
+			tmpSegments = append(tmpSegments, segment)
 		}
 		return nil
 	})
@@ -114,12 +114,35 @@ func Open(options Options) (*StreamStore, error) {
 		return nil, err
 	}
 
-	sort.Slice(ss.segments, func(i, j int) bool {
-		return ss.segments[i].LastEntryID() < ss.segments[j].LastEntryID()
+	sort.Slice(tmpSegments, func(i, j int) bool {
+		if tmpSegments[i].FirstEntryID() == tmpSegments[j].FirstEntryID() {
+			return tmpSegments[i].LastEntryID() > tmpSegments[j].LastEntryID()
+		}
+		return tmpSegments[i].FirstEntryID() < tmpSegments[j].FirstEntryID()
 	})
 
+	var segments []Segment
+	for _, segment := range tmpSegments {
+		if segments == nil {
+			segments = append(segments, segment)
+			continue
+		}
+		if segments[len(segments)-1].FirstEntryID() <= segment.FirstEntryID() &&
+			segment.LastEntryID() <= segments[len(segments)-1].LastEntryID() {
+			logrus.WithFields(logrus.Fields{
+				"filename": segment.Filename(),
+			}).Info("delete segment by merged")
+			continue
+		}
+		segments = append(segments, segment)
+	}
+
+	if !ss.updateSegments(ss.getSegmentsPointor(), segments) {
+		logrus.Panic("updateSegments failed")
+	}
+
 	var lastEntryID uint64
-	for _, segment := range ss.segments {
+	for _, segment := range ss.getSegments() {
 		for _, soffset := range segment.GetStreamOffsets() {
 			ss.omap.set(soffset.StreamID, soffset.To)
 		}
@@ -142,7 +165,7 @@ func Open(options Options) (*StreamStore, error) {
 		Name:      "segment_files",
 		Help:      "size of yatsdb stream store segment files",
 	}, func() float64 {
-		return float64(ss.segmentCount())
+		return float64(len(ss.getSegments()))
 	})
 
 	metrics.MTables = prometheus.NewCounterFunc(prometheus.CounterOpts{
@@ -275,10 +298,30 @@ const (
 	segmentExt     = ".segment"
 )
 
+func FormatSegmentName(first, last uint64) string {
+	return fmt.Sprintf("%d-%d", first, last)
+}
+func parseEntryID(filename string) (from int64, to int64, err error) {
+	token := strings.Split(filepath.Base(filename), ".")[0]
+	tokens := strings.Split(token, "-")
+	if len(tokens) != 2 {
+		return 0, 0, errors.Errorf("filename %s format error", filename)
+	}
+	from, err = strconv.ParseInt(tokens[0], 10, 64)
+	if err != nil {
+		return 0, 0, errors.Errorf("parse from %s error %s", tokens[0], err.Error())
+	}
+	to, err = strconv.ParseInt(tokens[1], 10, 64)
+	if err != nil {
+		return 0, 0, errors.Errorf("parse to %s error %s", tokens[0], err.Error())
+	}
+	return
+}
+
 func (ss *StreamStore) createSegment(mtable MTable) string {
 	begin := time.Now()
-	tempfile := filepath.Join(ss.Options.SegmentDir,
-		strconv.FormatUint(mtable.LastEntryID(), 10)+segmentTempExt)
+	name := FormatSegmentName(mtable.FirstEntryID(), mtable.LastEntryID())
+	tempfile := filepath.Join(ss.Options.SegmentDir, name+segmentTempExt)
 	f, err := os.Create(tempfile)
 	if err != nil {
 		logrus.WithError(err).Panicf("create file failed")
@@ -291,8 +334,7 @@ func (ss *StreamStore) createSegment(mtable MTable) string {
 		logrus.WithField("filename", tempfile).
 			WithError(err).Panicf("close segment failed")
 	}
-	filename := filepath.Join(ss.Options.SegmentDir,
-		strconv.FormatUint(mtable.FirstEntryID(), 10)+segmentExt)
+	filename := filepath.Join(ss.Options.SegmentDir, name+segmentExt)
 	if err := os.Rename(tempfile, filename); err != nil {
 		logrus.WithField("from", tempfile).
 			WithField("to", filename).
@@ -304,77 +346,61 @@ func (ss *StreamStore) createSegment(mtable MTable) string {
 	return filename
 }
 
-func (ss *StreamStore) clearFirstSegmentWithLock() {
-	first := ss.segments[0]
-	copy(ss.segments, ss.segments[1:])
-	ss.segments[len(ss.segments)-1] = nil
-	ss.segments = ss.segments[:len(ss.segments)-1]
+func (ss *StreamStore) deleteFirstSegment() {
+	var segment Segment
+	for {
+		segmentPointer := ss.getSegmentsPointor()
+		segments := *(*[]Segment)(segmentPointer)
+		if len(segments) > 0 {
+			segment = segments[0]
+			if ss.updateSegments(segmentPointer, append([]Segment{}, segments[1:]...)) {
+				break
+			}
+		}
+	}
 
-	filename := first.Filename()
-	if err := first.Close(); err != nil {
-		logrus.WithField("filename", filename).
+	segment.SetDeleteOnClose(true)
+	if err := segment.Close(); err != nil {
+		logrus.WithField("filename", segment.Filename()).
 			Panicf("close segment failed %s", err.Error())
 	}
-	if err := os.Remove(filename); err != nil {
-		logrus.WithField("filename", filename).
-			Panicf("remove segment failed")
-	}
-	logrus.WithField("filename", filename).Infof("clear segment file")
 }
-func (ss *StreamStore) clearSegments() {
-	ss.segmentLocker.Lock()
-	defer ss.segmentLocker.Unlock()
 
-	for len(ss.segments) > 0 {
-		if time.Since(ss.segments[0].CreateTS()) > ss.Retention.Time {
-			ss.clearFirstSegmentWithLock()
-			continue
-		}
-		break
-	}
-
-	for len(ss.segments) > 0 {
-		var size int64
-		for _, s := range ss.segments {
-			size += s.Size()
-		}
-		if size > int64(ss.Retention.Size) {
-			ss.clearFirstSegmentWithLock()
-			continue
-		}
-		break
-	}
-}
 func (ss *StreamStore) flushMTable(mtable MTable) {
 	filename := ss.createSegment(mtable)
 	segment, err := ss.openSegment(filename)
 	if err != nil {
 		logrus.Panicf("open segment failed %+v", err)
 	}
-	ss.updateSegments(segment)
+	ss.appendSegment(segment)
 	ss.clearMTable()
 	ss.wal.ClearLogFiles(mtable.LastEntryID())
-	ss.clearSegments()
+	ss.notifyMergeSegments()
 }
 
 func (ss *StreamStore) openSegment(filename string) (Segment, error) {
-	f, err := os.Open(filename)
-	if err != nil {
-		return nil, errors.Errorf("open file %s failed %s", filename, err.Error())
+	return openSegmentV1(filename)
+}
+
+func (ss *StreamStore) getSegments() []Segment {
+	return *(*[]Segment)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.segments))))
+}
+func (ss *StreamStore) getSegmentsPointor() unsafe.Pointer {
+	return atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.segments)))
+}
+func (ss *StreamStore) updateSegments(pointor unsafe.Pointer, segments []Segment) bool {
+	return atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.segments)),
+		pointor, unsafe.Pointer(&segments))
+}
+func (ss *StreamStore) appendSegment(segment Segment) {
+	for {
+		segments := ss.getSegmentsPointor()
+		newSegments := append(*(*[]Segment)(segments), segment)
+		if atomic.CompareAndSwapPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.segments)),
+			segments, unsafe.Pointer(&newSegments)) {
+			break
+		}
 	}
-	return newSegment(f)
-}
-
-func (ss *StreamStore) segmentCount() int {
-	ss.segmentLocker.Lock()
-	defer ss.segmentLocker.Unlock()
-	return len(ss.segments)
-}
-
-func (ss *StreamStore) updateSegments(segment Segment) {
-	ss.segmentLocker.Lock()
-	ss.segments = append(ss.segments, segment)
-	ss.segmentLocker.Unlock()
 }
 
 //clearMTable remove mtable reduce memory using
@@ -414,9 +440,7 @@ func (ss *StreamStore) getMtables() []MTable {
 	return *(*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
 }
 func (ss *StreamStore) appendMtable(mtable MTable) {
-	mTables := (*[]MTable)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables))))
-	newTables := append(append([]MTable{}, *mTables...), mtable)
-	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&ss.mTables)), unsafe.Pointer(&newTables))
+	ss.updateTables(append(ss.getMtables(), mtable))
 }
 
 func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
@@ -434,6 +458,142 @@ func (ss *StreamStore) writeEntry(entry appendEntry) int64 {
 	ss.appendMtable(ss.mtable)
 	ss.asyncFlushMtable(unmutTable)
 	return offset
+}
+func (ss *StreamStore) clearSegments() {
+	for {
+		segments := ss.getSegments()
+		if len(segments) == 0 {
+			return
+		}
+		if time.Since(segments[0].CreateTS()) > ss.Retention.Time {
+			ss.deleteFirstSegment()
+			continue
+		}
+		break
+	}
+
+	for {
+		var size int64
+		for _, segment := range ss.getSegments() {
+			size += segment.Size()
+		}
+		if size > int64(ss.Retention.Size) {
+			ss.deleteFirstSegment()
+			continue
+		}
+		break
+	}
+}
+func (ss *StreamStore) mergeSegments() {
+	var size int64
+	var toMergeSegments []*SegmentV1
+	for _, segment := range ss.getSegments() {
+		segmentV1 := segment.(*SegmentV1)
+		if int64(segmentV1.header.Merges) > 1 {
+			logrus.WithFields(logrus.Fields{
+				"segment": segment.Filename(),
+				"merges":  segmentV1.header.Merges,
+			}).Info("skip merged segment")
+			continue
+		}
+		size += segment.Size()
+		toMergeSegments = append(toMergeSegments, segmentV1)
+	}
+
+	if size < int64(ss.Options.MinMergedSegmentSize) ||
+		len(toMergeSegments) <= 1 {
+		return
+	}
+
+	name := FormatSegmentName(toMergeSegments[0].FirstEntryID(),
+		toMergeSegments[len(toMergeSegments)-1].LastEntryID())
+	tempfile := filepath.Join(ss.SegmentDir, name+segmentTempExt)
+	f, err := os.Create(tempfile)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"filename": tempfile,
+			"err":      err,
+		}).Panicf("create temp segment failed")
+	}
+	if err := MergeSegments(f, toMergeSegments...); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"filename": tempfile,
+			"err":      err.Error(),
+		}).Panicf("mergeSegments failed")
+	}
+
+	if err := f.Close(); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"filename": tempfile,
+			"err":      err.Error(),
+		}).Panic("close file failed")
+	}
+	filename := filepath.Join(ss.SegmentDir, name+segmentExt)
+	if err := os.Rename(tempfile, filename); err != nil {
+		logrus.WithFields(logrus.Fields{
+			"from": tempfile,
+			"to":   filename,
+			"err":  err.Error(),
+		}).Panic("rename failed")
+	}
+	mergedSegment, err := openSegmentV1(filename)
+	if err != nil {
+		logrus.WithFields(logrus.Fields{
+			"filename": filename,
+			"err":      err.Error(),
+		}).Panic("openSegmentV1 failed")
+	}
+	for {
+		segmentsPointer := ss.getSegmentsPointor()
+		segments := *(*[]Segment)(segmentsPointer)
+		var newSegments []Segment
+		var toDeleteSegment []Segment
+		for _, segment := range segments {
+			if mergedSegment.FirstEntryID() <= segment.FirstEntryID() &&
+				segment.LastEntryID() <= mergedSegment.LastEntryID() {
+				toDeleteSegment = append(toDeleteSegment, segment)
+				continue
+			}
+			newSegments = append(newSegments, segment)
+		}
+		sort.Slice(newSegments, func(i, j int) bool {
+			return newSegments[i].LastEntryID() < newSegments[j].LastEntryID()
+		})
+
+		if !ss.updateSegments(segmentsPointer, newSegments) {
+			continue
+		}
+
+		for _, segment := range toDeleteSegment {
+			segment.SetDeleteOnClose(true)
+			if err := segment.Close(); err != nil {
+				logrus.WithFields(logrus.Fields{
+					"filename": segment.Filename(),
+					"err":      err,
+				}).Panic("close Segment failed")
+			}
+		}
+		break
+	}
+}
+func (ss *StreamStore) notifyMergeSegments() {
+	select {
+	case ss.mergeSegmentCh <- struct{}{}:
+	default:
+	}
+}
+func (ss *StreamStore) startMergeSegmentRoutine() {
+	go func() {
+		for {
+			select {
+			case <-ss.mergeSegmentCh:
+				ss.clearSegments()
+				ss.mergeSegments()
+			case <-ss.ctx.Done():
+				return
+			}
+		}
+	}()
 }
 func (ss *StreamStore) startWriteEntryRoutine() {
 	go func() {
@@ -455,18 +615,14 @@ func (ss *StreamStore) startWriteEntryRoutine() {
 
 func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader, error) {
 	mTables := ss.getMtables()
+	segments := ss.getSegments()
 	if i := SearchMTables1(mTables, streamID, offset); i != -1 {
 		return mTables[i].NewReader(streamID)
 	}
-
-	ss.segmentLocker.RLock()
-	if i := SearchSegments(ss.segments, streamID, offset); i != -1 {
-		segment := ss.segments[i]
-		ss.segmentLocker.RUnlock()
+	if i := SearchSegments(segments, streamID, offset); i != -1 {
+		segment := segments[i]
 		return segment.NewReader(streamID)
 	}
-	ss.segmentLocker.RUnlock()
-
 	if i := SearchMTables2(mTables, streamID, offset); i != -1 {
 		return mTables[i].NewReader(streamID)
 	}
@@ -496,7 +652,7 @@ func (ss *StreamStore) Close() error {
 	}
 	ss.cancel()
 	ss.wg.Wait()
-	for _, segment := range ss.segments {
+	for _, segment := range ss.getSegments() {
 		if err := segment.Close(); err != nil {
 			return err
 		}

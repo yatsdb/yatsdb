@@ -9,7 +9,7 @@ import (
 
 	"github.com/dgraph-io/badger/v3"
 	badgerbatcher "github.com/yatsdb/yatsdb/badger-batcher"
-	. "github.com/yatsdb/yatsdb/ss-offsetindex"
+	. "github.com/yatsdb/yatsdb/ssoffsetindex"
 	"gotest.tools/v3/assert"
 )
 

@@ -88,17 +88,17 @@ func TestOpen(t *testing.T) {
 }
 
 func TestStreamStore_Append(t *testing.T) {
-	logrus.SetLevel(logrus.WarnLevel)
+	logrus.SetLevel(logrus.InfoLevel)
 	t.Cleanup(func() {
-		_ = os.RemoveAll(t.Name())
+		//	_ = os.RemoveAll(t.Name())
 	})
 	opts := DefaultOptionsWithDir(t.Name())
-	opts.MaxMemTableSize = 128 << 10
+	opts.MaxMemTableSize = 512
 	opts.MaxMTables = 3
 	ss, err := Open(opts)
 	assert.NoError(t, err)
 
-	var sCount = 3333
+	var sCount = 3
 	var streamSize = 3333
 	var bufferMap = make(map[StreamID]*bytes.Buffer)
 
@@ -137,12 +137,18 @@ func TestStreamStore_Append(t *testing.T) {
 			data, err := ioutil.ReadAll(reader)
 			assert.NoError(t, err)
 			assert.True(t, bytes.Equal(data, bufferMap[invertedindex.StreamID(i)].Bytes()))
+			reader.Close()
 		}
 		for !(len(ss.getMtables()) <= opts.MaxMTables) {
 			fmt.Println(len(ss.getMtables()))
 			time.Sleep(time.Second)
 		}
 	})
+
+	ss.Options.MinMergedSegmentSize = 10
+
+	ss.mergeSegments()
+
 	t.Run("close", func(t *testing.T) {
 		assert.NoError(t, ss.Close())
 	})
@@ -174,7 +180,7 @@ func TestStreamStore_Append(t *testing.T) {
 
 		ss.clearSegments()
 
-		assert.Equal(t, len(ss.segments), 0)
+		assert.Equal(t, len(ss.getSegments()), 0)
 		assert.NoError(t, filepath.Walk(opts.SegmentDir, func(path string, info fs.FileInfo, err error) error {
 			assert.NoError(t, err)
 			if info.IsDir() {
