@@ -19,6 +19,7 @@ func NewRef(fn func()) *Ref {
 }
 
 func (ref *Ref) Inc() bool {
+	logrus.Info("inc")
 	for {
 		n := atomic.LoadInt32(&ref.n)
 		if n < 0 {
@@ -35,6 +36,7 @@ func (ref *Ref) Inc() bool {
 	}
 }
 func (ref *Ref) DecRef() {
+	logrus.Info("def")
 	for {
 		n := atomic.LoadInt32(&ref.n)
 		if n <= 0 {

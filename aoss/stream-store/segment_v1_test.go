@@ -280,6 +280,8 @@ func TestMergeSegments(t *testing.T) {
 					continue
 				}
 				data, err := ioutil.ReadAll(reader)
+				assert.NoError(t, err)
+				assert.NoError(t, reader.Close())
 				size += len(data)
 				assert.NoError(t, err)
 				hash.Write(data)
@@ -297,10 +299,15 @@ func TestMergeSegments(t *testing.T) {
 			assert.NoError(t, err)
 
 			data, err := ioutil.ReadAll(reader)
+			assert.NoError(t, reader.Close())
 			assert.NoError(t, err)
 			hash = md5.New()
 			hash.Write(data)
 			assert.Equal(t, md5Sum, hex.EncodeToString(hash.Sum(nil)))
 		})
+	}
+	for _, segment := range segments {
+		segment.SetDeleteOnClose(true)
+		assert.NoError(t, segment.Close())
 	}
 }

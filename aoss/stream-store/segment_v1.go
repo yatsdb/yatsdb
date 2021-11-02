@@ -368,7 +368,6 @@ func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
 		return errors.WithStack(err)
 	}
 
-	var readerBuf = make([]byte, 4*1024)
 	for i := 0; i < len(SSOffsets); i++ {
 		meta := &SSOffsets[i]
 		meta.Offset = offset
@@ -378,17 +377,14 @@ func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
 			if err != nil {
 				continue
 			}
-			n, err := reader.Read(readerBuf)
+			n, err := io.Copy(ws, reader)
 			if err != nil {
-				if err == io.EOF {
-					continue
-				}
-				return err
-			}
-			if _, err := ws.Write(readerBuf[:n]); err != nil {
-				return errors.Wrap(err, "write segment failed")
+				return errors.Wrap(err, "read stream failed")
 			}
 			offset += int64(n)
+			if err := reader.Close(); err != nil {
+				return errors.Wrap(err, "close stream reader failed")
+			}
 		}
 		*(*StreamSegmentOffset)(
 			unsafe.Pointer(&indexBuf[i*int(SSOffsetSize)])) = *meta

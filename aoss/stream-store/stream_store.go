@@ -500,8 +500,8 @@ func (ss *StreamStore) mergeSegments() {
 		toMergeSegments = append(toMergeSegments, segmentV1)
 	}
 
-	if size < int64(ss.Options.MinMergedSegmentSize) &&
-		len(toMergeSegments) == 1 {
+	if size < int64(ss.Options.MinMergedSegmentSize) ||
+		len(toMergeSegments) <= 1 {
 		return
 	}
 
@@ -572,11 +572,6 @@ func (ss *StreamStore) mergeSegments() {
 					"err":      err,
 				}).Panic("close Segment failed")
 			}
-			logrus.WithFields(logrus.Fields{
-				"filename":   segment.Filename(),
-				"firstEntry": segment.FirstEntryID(),
-				"lastEntry":  segment.LastEntryID(),
-			}).Info("delete segment by merged")
 		}
 		break
 	}
