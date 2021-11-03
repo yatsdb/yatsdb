@@ -54,7 +54,6 @@ func MustRegister(r prometheus.Registerer) {
 		WalLogFiles,
 
 		//stream store
-		SegmentSize,
 		SegmentFiles,
 		MTables,
 		OMapLen,
