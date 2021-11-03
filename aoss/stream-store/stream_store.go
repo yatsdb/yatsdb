@@ -557,6 +557,9 @@ func (ss *StreamStore) mergeSegments() {
 			}
 			newSegments = append(newSegments, segment)
 		}
+
+		newSegments = append(newSegments, mergedSegment)
+
 		sort.Slice(newSegments, func(i, j int) bool {
 			return newSegments[i].LastEntryID() < newSegments[j].LastEntryID()
 		})
