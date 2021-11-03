@@ -14,6 +14,7 @@ type Options struct {
 	MaxMTables       int         `yaml:"max_mtables" json:"max_m_tables,omitempty"`
 	SegmentDir       string      `yaml:"segment_dir" json:"segment_dir,omitempty"`
 	CallbackRoutines int         `yam:"callback_routines" json:"callback_routines,omitempty"`
+	BlockSize        int         `yaml:"block_size,omitempty" json:"block_size,omitempty"`
 	Retention        struct {
 		Time time.Duration `yaml:"retention" json:"time,omitempty"`
 		Size utils.Bytes   `yaml:"size" json:"size,omitempty"`
@@ -31,6 +32,7 @@ func DefaultOptionsWithDir(dir string) Options {
 		MaxMemTableSize:      512 << 20,
 		MinMergedSegmentSize: 1 << 32, //4GiB
 		MaxMTables:           1,
+		BlockSize:            640,
 		CallbackRoutines:     4,
 		SegmentDir:           filepath.Join(dir, "segments"),
 		Retention: struct {

@@ -46,6 +46,8 @@ func (alloc *chunkMemAlloc) Alloc(size int) []byte {
 	}
 }
 
+var alloc = new(chunkMemAlloc)
+
 type chunk struct {
 	begin  int64
 	offset int
@@ -67,7 +69,7 @@ type mtable struct {
 	chunksMap    map[StreamID]*Chunks
 }
 
-var blockSize = 128
+var blockSize = 640
 
 func (b *Chunks) WriteTo(w io.Writer) (n int64, err error) {
 	b.RLock()
@@ -92,7 +94,7 @@ func (b *Chunks) Write(data []byte) int64 {
 	if b.chunks == nil {
 		b.chunks = append(b.chunks, chunk{
 			begin: b.From,
-			buf:   make([]byte, blockSize),
+			buf:   alloc.Alloc(blockSize),
 		})
 	}
 	for len(data) > 0 {
@@ -100,7 +102,7 @@ func (b *Chunks) Write(data []byte) int64 {
 		if len(last.buf) == int(last.offset) {
 			b.chunks = append(b.chunks, chunk{
 				begin: b.To,
-				buf:   make([]byte, blockSize),
+				buf:   alloc.Alloc(blockSize),
 			})
 			continue
 		}

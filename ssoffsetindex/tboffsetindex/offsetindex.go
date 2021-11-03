@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 	"github.com/yatsdb/yatsdb/aoss/stream-store/wal"
+	"github.com/yatsdb/yatsdb/pkg/metrics"
 	"github.com/yatsdb/yatsdb/pkg/utils"
 	"github.com/yatsdb/yatsdb/ssoffsetindex"
 )
@@ -557,6 +558,7 @@ func (db *DB) SetStreamTimestampOffset(entry ssoffsetindex.SeriesStreamOffset, c
 			} else {
 				table.Offsets[entry.StreamID] = entry.Offset
 				table.tablesLocker.Unlock()
+				metrics.UpdateOffsetIndexCount.Inc()
 				table.wal.Write(&STOffsetEntry{
 					StreamTimeStampOffset: streamstorepb.StreamTimeStampOffset{
 						StreamId:    0,

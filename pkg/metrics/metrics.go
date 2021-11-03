@@ -21,6 +21,7 @@ var (
 	WalLogFiles         prometheus.GaugeFunc
 
 	//stream store
+	SegmentSize  prometheus.GaugeFunc
 	SegmentFiles prometheus.GaugeFunc
 	MTables      prometheus.GaugeFunc
 	OMapLen      prometheus.GaugeFunc

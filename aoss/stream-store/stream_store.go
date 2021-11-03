@@ -62,6 +62,10 @@ type StreamStore struct {
 type AppendCallbackFn = func(offset int64, err error)
 
 func Open(options Options) (*StreamStore, error) {
+	if options.BlockSize < 320 {
+		options.BlockSize = 320
+	}
+	blockSize = options.BlockSize
 	if options.CallbackRoutines == 0 {
 		options.CallbackRoutines = 1
 	}
@@ -159,6 +163,19 @@ func Open(options Options) (*StreamStore, error) {
 	for i := 0; i < ss.CallbackRoutines; i++ {
 		ss.startCallbackRoutine()
 	}
+
+	metrics.SegmentSize = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "stream_store",
+		Name:      "segment_files",
+		Help:      "size of yatsdb stream store segment files",
+	}, func() float64 {
+		var size int64
+		for _, segment := range ss.getSegments() {
+			size += segment.Size()
+		}
+		return float64(size)
+	})
 
 	metrics.SegmentFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: "yatsdb",
