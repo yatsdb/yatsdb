@@ -1,6 +1,7 @@
 package streamstore
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
 	"os"
@@ -238,16 +239,20 @@ func WriteSegmentV1(m *mtable, ws io.WriteSeeker) error {
 	if _, err := ws.Seek(offset, 0); err != nil {
 		return errors.WithStack(err)
 	}
+	bufWriter := bufio.NewWriter(ws)
 	for i := 0; i < len(offsetIndexes); i++ {
 		meta := &offsetIndexes[i]
 		meta.Offset = offset
 		blocks := m.chunksMap[meta.StreamID]
-		n, err := blocks.WriteTo(ws)
+		n, err := blocks.WriteTo(bufWriter)
 		if err != nil {
 			return err
 		}
 		offset += int64(n)
 		*(*StreamSegmentOffset)(unsafe.Pointer(&indexBuf[i*int(SSOffsetSize)])) = *meta
+	}
+	if err := bufWriter.Flush(); err != nil {
+		return errors.Wrap(err, "flush failed")
 	}
 
 	if _, err := ws.Seek(indexOffset, 0); err != nil {
