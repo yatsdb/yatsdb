@@ -61,7 +61,7 @@ func (writer *samplesWriter) encodeSampleV1(samples []prompb.Sample) []byte {
 
 func (writer *samplesWriter) Write(ID StreamID, samples []prompb.Sample, fn WriteSampleCallback) {
 	var timestamp = samples[0].Timestamp
-	data := encodeSample(samples)
+	data := writer.encodeSampleV1(samples)
 	writer.streamAppender.Append(ID, data, func(offset int64, err error) {
 		if err != nil {
 			logrus.Errorf("append stream failed %s", err.Error())
