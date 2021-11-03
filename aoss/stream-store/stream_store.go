@@ -62,6 +62,10 @@ type StreamStore struct {
 type AppendCallbackFn = func(offset int64, err error)
 
 func Open(options Options) (*StreamStore, error) {
+	if options.BlockSize < 320 {
+		options.BlockSize = 320
+	}
+	blockSize = options.BlockSize
 	if options.CallbackRoutines == 0 {
 		options.CallbackRoutines = 1
 	}
