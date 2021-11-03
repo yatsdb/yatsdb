@@ -164,6 +164,19 @@ func Open(options Options) (*StreamStore, error) {
 		ss.startCallbackRoutine()
 	}
 
+	metrics.SegmentSize = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: "yatsdb",
+		Subsystem: "stream_store",
+		Name:      "segment_files",
+		Help:      "size of yatsdb stream store segment files",
+	}, func() float64 {
+		var size int64
+		for _, segment := range ss.getSegments() {
+			size += segment.Size()
+		}
+		return float64(size)
+	})
+
 	metrics.SegmentFiles = prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 		Namespace: "yatsdb",
 		Subsystem: "stream_store",
