@@ -37,10 +37,9 @@ func (querier *streamMetricQuerier) QueryStreamMetric(query *prompb.Query) ([]*S
 			}
 		}
 		offset = append(offset, &StreamMetricOffset{
-			StreamMetric:     metric,
-			Offset:           offsetStart,
-			StartTimestampMs: query.StartTimestampMs,
-			EndTimestampMs:   query.EndTimestampMs,
+			StreamMetric: metric,
+			Offset:       offsetStart,
+			Query:        query,
 		})
 	}
 	logrus.WithFields(logrus.Fields{

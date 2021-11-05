@@ -15,11 +15,11 @@ type metricSampleIteratorCreater struct {
 }
 
 type sampleIterator struct {
-	offset *StreamMetricOffset
-	closer io.Closer
-	reader io.Reader
-
+	offset    *StreamMetricOffset
+	closer    io.Closer
+	reader    io.Reader
 	bufReader *BufReader
+	nextTS    int64
 }
 
 func (creator *metricSampleIteratorCreater) CreateSampleSampleIterator(StreamMetric *StreamMetricOffset) (SampleIterator, error) {
@@ -34,6 +34,7 @@ func (creator *metricSampleIteratorCreater) CreateSampleSampleIterator(StreamMet
 	return &sampleIterator{
 		offset: StreamMetric,
 		closer: reader,
+		nextTS: StreamMetric.StartTimestampMs,
 		bufReader: &BufReader{
 			reader: reader,
 		},
@@ -83,12 +84,13 @@ func (si *sampleIterator) Next() (prompb.Sample, error) {
 		if err != nil {
 			return sample, err
 		}
-		if sample.Timestamp < si.offset.StartTimestampMs {
+		if sample.Timestamp < si.nextTS {
 			continue
 		}
 		if sample.Timestamp > si.offset.EndTimestampMs {
 			return sample, io.EOF
 		}
+		si.nextTS = sample.Timestamp + si.offset.Hints.StepMs
 		return sample, nil
 	}
 }

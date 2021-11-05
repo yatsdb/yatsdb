@@ -372,7 +372,7 @@ func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
 	if _, err := ws.Seek(offset, 0); err != nil {
 		return errors.WithStack(err)
 	}
-
+	bufWriter := bufio.NewWriter(ws)
 	for i := 0; i < len(SSOffsets); i++ {
 		meta := &SSOffsets[i]
 		meta.Offset = offset
@@ -382,7 +382,7 @@ func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
 			if err != nil {
 				continue
 			}
-			n, err := io.Copy(ws, reader)
+			n, err := io.Copy(bufWriter, reader)
 			if err != nil {
 				return errors.Wrap(err, "read stream failed")
 			}
@@ -393,6 +393,9 @@ func MergeSegments(ws io.WriteSeeker, segments ...*SegmentV1) error {
 		}
 		*(*StreamSegmentOffset)(
 			unsafe.Pointer(&indexBuf[i*int(SSOffsetSize)])) = *meta
+	}
+	if err := bufWriter.Flush(); err != nil {
+		return errors.WithStack(err)
 	}
 
 	if _, err := ws.Seek(indexOffset, 0); err != nil {

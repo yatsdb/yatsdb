@@ -166,9 +166,10 @@ func dumpRequestResponse(request *prompb.ReadRequest, response *prompb.ReadRespo
 		Value string `json:"value,omitempty"`
 	}
 	type Query struct {
-		StartTimestampMs time.Time       `json:"start_timestamp_ms,omitempty"`
-		EndTimestampMs   time.Time       `json:"end_timestamp_ms,omitempty"`
-		Matchers         []*LabelMatcher `json:"matchers,omitempty"`
+		StartTimestampMs time.Time         `json:"start_timestamp_ms,omitempty"`
+		EndTimestampMs   time.Time         `json:"end_timestamp_ms,omitempty"`
+		Matchers         []*LabelMatcher   `json:"matchers,omitempty"`
+		ReadHints        *prompb.ReadHints `json:"read_hints,omitempty"`
 	}
 	type ReadRequest struct {
 		Queries []*Query `protobuf:"bytes,1,rep,name=queries,proto3" json:"queries,omitempty"`
@@ -180,6 +181,7 @@ func dumpRequestResponse(request *prompb.ReadRequest, response *prompb.ReadRespo
 		reqCopy.Queries = append(reqCopy.Queries, &Query{
 			StartTimestampMs: time.UnixMilli(query.StartTimestampMs).Local(),
 			EndTimestampMs:   time.UnixMilli(query.EndTimestampMs).Local(),
+			ReadHints:        query.Hints,
 		})
 		copyQuery := reqCopy.Queries[len(reqCopy.Queries)-1]
 		for _, lm := range query.Matchers {
