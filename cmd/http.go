@@ -33,6 +33,7 @@ func StartHttpService() {
 		}
 		return
 	}
+	logrus.SetLevel(logrus.DebugLevel)
 
 	var opts yatsdb.Options
 	var err error
