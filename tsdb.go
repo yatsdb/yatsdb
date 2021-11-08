@@ -144,6 +144,7 @@ func OpenTSDB(options Options) (TSDB, error) {
 		streamMetricQuerier: &streamMetricQuerier{
 			streamTimestampOffsetGetter: offsetIndexDB,
 			metricMatcher:               metricIndexDB,
+			getOffsetCh:                 make(chan interface{}, 128),
 		},
 		invertedIndexUpdater: metricIndexDB,
 		offsetIndexUpdater:   offsetIndexDB,
