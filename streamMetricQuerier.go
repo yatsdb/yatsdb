@@ -1,6 +1,7 @@
 package yatsdb
 
 import (
+	"sync"
 	"time"
 
 	"github.com/prometheus/prometheus/prompb"
@@ -12,6 +13,7 @@ import (
 type streamMetricQuerier struct {
 	streamTimestampOffsetGetter ssoffsetindex.StreamTimestampOffsetGetter
 	metricMatcher               invertedindex.IndexMatcher
+	getOffsetCh                 chan interface{}
 }
 
 var _ StreamMetricQuerier = (*streamMetricQuerier)(nil)
@@ -29,18 +31,30 @@ func (querier *streamMetricQuerier) QueryStreamMetric(query *prompb.Query) ([]*S
 	}).Info("matches metrics success")
 	begin = time.Now()
 	//Todo multi goroutine to get offset
+	var wg sync.WaitGroup
 	for _, metric := range streamMetrics {
-		offsetStart, err := querier.streamTimestampOffsetGetter.GetStreamTimestampOffset(metric.StreamID, query.StartTimestampMs, false)
-		if err != nil {
-			if err != ssoffsetindex.ErrNoFindOffset {
-				return nil, err
-			}
-		}
-		offset = append(offset, &StreamMetricOffset{
+		SMOffset := &StreamMetricOffset{
 			StreamMetric: metric,
-			Offset:       offsetStart,
 			Query:        query,
-		})
+		}
+		querier.getOffsetCh <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer func() {
+				wg.Done()
+				<-querier.getOffsetCh
+			}()
+			offsetStart, err := querier.streamTimestampOffsetGetter.
+				GetStreamTimestampOffset(SMOffset.StreamID, query.StartTimestampMs, false)
+			if err != nil {
+				if err != ssoffsetindex.ErrNoFindOffset {
+					logrus.WithError(err).
+						Panicf("get steam timestamp offset failed")
+				}
+			}
+			SMOffset.Offset = offsetStart
+		}()
+		offset = append(offset, SMOffset)
 	}
 	logrus.WithFields(logrus.Fields{
 		"count":   len(streamMetrics),
