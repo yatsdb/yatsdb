@@ -532,15 +532,16 @@ func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestam
 			}
 		}
 	}
-
+	begin := time.Now()
 	i := sort.Search(len(fileSTOffsetTables), func(i int) bool {
 		return timestampMS <= fileSTOffsetTables[i].TimeStamp.From
 	})
 	if i >= len(fileSTOffsetTables) {
 		i = len(fileSTOffsetTables) - 1
 	}
-	for ; i >= 0; i-- {
-		fileTable := fileSTOffsetTables[i]
+	j := i
+	for ; j >= 0; j-- {
+		fileTable := fileSTOffsetTables[j]
 		if !fileTable.IncRef() {
 			continue
 		}
@@ -555,9 +556,11 @@ func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestam
 					"streamID":           streamID,
 					"timestamp":          timestampMS,
 					"fileSTOffsetTables": len(fileSTOffsetTables),
-					"i":                  i,
 					"offset":             offsets[k].Offset,
 					"k":                  k,
+					"i":                  i,
+					"j":                  j,
+					"elapsed":            time.Since(begin),
 				}).Debug("find offset in FileTSOffsetTable")
 				return offsets[k].Offset, nil
 			}
@@ -568,7 +571,6 @@ func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestam
 		"streamID":           streamID,
 		"timestamp":          timestampMS,
 		"fileSTOffsetTables": len(fileSTOffsetTables),
-		"i":                  i,
 	}).Debug("no find offset")
 	return 0, ssoffsetindex.ErrNoFindOffset
 }
