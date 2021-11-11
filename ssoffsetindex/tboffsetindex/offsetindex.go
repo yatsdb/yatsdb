@@ -540,11 +540,13 @@ func (db *DB) GetStreamTimestampOffset(streamID ssoffsetindex.StreamID, timestam
 		i = len(fileSTOffsetTables) - 1
 	}
 	j := i
-	for ; j >= 0; j-- {
+	n := 3
+	for ; j >= 0 && n > 0; j-- {
 		fileTable := fileSTOffsetTables[j]
 		if !fileTable.IncRef() {
 			continue
 		}
+		n--
 		if fileTable.TimeStamp.From <= timestampMS {
 			offsets := fileTable.STOffsets
 			k := sort.Search(len(offsets), func(j int) bool {
