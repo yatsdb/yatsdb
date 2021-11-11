@@ -11,6 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/prometheus/prometheus/tsdb/fileutil"
+	"github.com/sirupsen/logrus"
 	streamstorepb "github.com/yatsdb/yatsdb/aoss/stream-store/pb"
 	"github.com/yatsdb/yatsdb/aoss/stream-store/wal"
 	"github.com/yatsdb/yatsdb/ssoffsetindex"
@@ -720,7 +721,7 @@ func TestDB_SetStreamTimestampOffset(t *testing.T) {
 }
 
 func TestDB_GetStreamTimestampOffset(t *testing.T) {
-
+	logrus.SetLevel(logrus.DebugLevel)
 	newRef := func() *int32 {
 		var ref int32
 		ref = 1
