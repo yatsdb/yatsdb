@@ -1,6 +1,7 @@
 package yatsdb
 
 import (
+	"math"
 	"sync"
 	"time"
 
@@ -51,8 +52,11 @@ func (querier *streamMetricQuerier) QueryStreamMetric(query *prompb.Query) ([]*S
 					logrus.WithError(err).
 						Panicf("get steam timestamp offset failed")
 				}
+				//EOF
+				SMOffset.Offset = math.MaxInt64
+			} else {
+				SMOffset.Offset = offsetStart
 			}
-			SMOffset.Offset = offsetStart
 		}()
 		offset = append(offset, SMOffset)
 	}
