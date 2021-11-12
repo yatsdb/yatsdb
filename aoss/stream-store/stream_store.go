@@ -650,11 +650,17 @@ func (ss *StreamStore) newReader(streamID StreamID, offset int64) (SectionReader
 	if i := SearchMTables2(mTables, streamID, offset); i != -1 {
 		return mTables[i].NewReader(streamID)
 	}
+	logrus.WithFields(logrus.Fields{
+		"streamID": streamID,
+		"offset":   offset}).Warnf("get sectionReader failed")
 	return nil, io.EOF
 }
 
 func (ss *StreamStore) NewReader(streamID StreamID) (io.ReadSeekCloser, error) {
 	if _, ok := ss.omap.get(streamID); !ok {
+		logrus.WithFields(logrus.Fields{
+			"streamID": streamID,
+		}).Warnf("get offset from omap failed")
 		return nil, io.EOF
 	}
 	blockReader, err := ss.newReader(streamID, 0)

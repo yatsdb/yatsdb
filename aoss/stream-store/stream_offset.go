@@ -18,6 +18,9 @@ func SearchSegments(segment []Segment, streamID StreamID, offset int64) int {
 		if !ok {
 			continue
 		}
+		if offset == 0 {
+			return i
+		}
 		if soffset.From <= offset && offset < soffset.To {
 			return i
 		}
